@@ -1,6 +1,14 @@
-# Progress — 5 November 2026
+# Progress — 7 November 2026
 
-## Current: 0.2.0 refinement
+## Current: 0.3.0 post-AI Studio audit — 7 November 2026
+
+- Shape-preserving live geometry and shared outlines; true square/circle dimensions at enlarged font scale; circular handle fully inside its shape. Normal tap opens metric details; stationary long press/edit tap opens the existing editor; drag and resize do not open sheets.
+- Configuration is now one explicit Save transaction. Dismissal cancels; preview changes do not mutate persisted layouts or undo history.
+- All 36 achievement IDs have explicit vector identities, without a generic fallback. Combined status/category filters, visible monthly challenges and dated history replace the overflowing filter strip.
+- Additive Room 2→3 migration stores source/period-specific progress and retains confirmed awards. Fixed gap-spanning streaks/weeks, duplicate activity counts, invalid readings and default-goal evaluation. Older Garmin detail evidence survives summary-only refreshes outside detail windows.
+- Evidence and final checks: `POST_AI_AUDIT_REPORT.md` and `verification/post-audit/`.
+
+## Previous: 0.2.0 refinement
 
 - Redesigned typography, Home/History/compositions, compact source detail sheet, selected-only two-arrow Studio handle, single-owner gestures, hysteresis, edge auto-scroll, flat readable medals and compact navigation. Existing layouts/settings preserved across upgrade; default changes apply only to new/reset layouts.
 - Official Garmin authentication and all 12 investigated metric categories verified live, mapped, cached separately and displayed with correct provider label. Runtime file import, Keystore ciphertext, offline cache and Health Connect source separation checked. Host key is ignored/untracked with no history entries.

@@ -18,6 +18,7 @@ class GarminRepository(private val api: GarminApi,private val dao: HealthDao): H
             val days=GarminMapping.summaries(api.json("/usersummary-service/v2/dailysummaries?startDate=$historyStart&endDate=$today"),now).toMutableMap()
             val errors=mutableListOf<String>();val unavailable=mutableSetOf<Metric>();val failed=mutableSetOf<Metric>()
             val prior=dao.garminDays().mapNotNull{runCatching{GarminMapping.decode(it.payload,true)}.getOrNull()}.associateBy{it.date}
+            days.replaceAll { date,day -> GarminMapping.preserveOutsideDetailWindow(day,prior[date],recent,today) }
             suspend fun optional(metrics: Set<Metric>,read: suspend ()->Unit) {
                 try{read()}catch(e: CancellationException){throw e}catch(e: GarminFailure){
                     if(e.code in setOf(GarminError.AUTHORIZATION,GarminError.RATE_LIMIT,GarminError.KEY_REQUIRED))throw e

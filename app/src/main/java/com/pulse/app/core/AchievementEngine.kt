@@ -10,9 +10,9 @@ enum class AchievementCategory(val label: String) {
     STEPS("Steps"),
     SLEEP("Sleep"),
     WORKOUTS("Workouts"),
-    TIMING("Timing"),
+    TIMING("Workout timing"),
     DISTANCE("Distance"),
-    ACTIVE("Active"),
+    ACTIVE("Active minutes"),
     CONSISTENCY("Consistency"),
     SPECIAL("Special")
 }
@@ -24,8 +24,7 @@ data class AchievementDefinition(
     val description: String,
     val requirement: String,
     val target: Double,
-    val unit: String = "",
-    val iconType: String
+    val unit: String = ""
 )
 
 data class UserAchievement(
@@ -33,7 +32,8 @@ data class UserAchievement(
     val progress: Double,
     val unlocked: Boolean,
     val unlockedDate: LocalDate? = null,
-    val progressText: String
+    val progressText: String,
+    val period: java.time.YearMonth? = null
 )
 
 object AchievementRegistry {
@@ -46,8 +46,7 @@ object AchievementRegistry {
             description = "Log your first day with recorded steps.",
             requirement = "Record steps on at least 1 day",
             target = 1.0,
-            unit = "day",
-            iconType = "footsteps"
+            unit = "day"
         ),
         AchievementDefinition(
             id = "steps_5k",
@@ -56,8 +55,7 @@ object AchievementRegistry {
             description = "Walk at least 5,000 steps in a single day.",
             requirement = "Reach 5,000 steps in one day",
             target = 5000.0,
-            unit = "steps",
-            iconType = "5k"
+            unit = "steps"
         ),
         AchievementDefinition(
             id = "steps_10k",
@@ -66,8 +64,7 @@ object AchievementRegistry {
             description = "Hit the landmark 10,000 steps in a single day.",
             requirement = "Reach 10,000 steps in one day",
             target = 10000.0,
-            unit = "steps",
-            iconType = "10k"
+            unit = "steps"
         ),
         AchievementDefinition(
             id = "goal_crusher",
@@ -76,8 +73,7 @@ object AchievementRegistry {
             description = "Complete your personalized daily step goal.",
             requirement = "Hit your step goal on at least 1 day",
             target = 1.0,
-            unit = "day",
-            iconType = "target"
+            unit = "day"
         ),
         AchievementDefinition(
             id = "step_consistency",
@@ -86,8 +82,7 @@ object AchievementRegistry {
             description = "Achieve your daily step goal on 5 separate days.",
             requirement = "Hit step goal on 5 separate days",
             target = 5.0,
-            unit = "days",
-            iconType = "streak"
+            unit = "days"
         ),
         AchievementDefinition(
             id = "walking_streak",
@@ -96,8 +91,7 @@ object AchievementRegistry {
             description = "Reach your step goal on 3 consecutive days.",
             requirement = "Hit step goal 3 days in a row",
             target = 3.0,
-            unit = "days",
-            iconType = "flame"
+            unit = "days"
         ),
 
         // B. SLEEP
@@ -108,8 +102,7 @@ object AchievementRegistry {
             description = "Record your first complete sleep session.",
             requirement = "Log at least 1 sleep session",
             target = 1.0,
-            unit = "night",
-            iconType = "moon"
+            unit = "night"
         ),
         AchievementDefinition(
             id = "well_rested",
@@ -118,8 +111,7 @@ object AchievementRegistry {
             description = "Sleep for at least 8 hours in a single night.",
             requirement = "Record 8.0 or more hours of sleep",
             target = 8.0,
-            unit = "hours",
-            iconType = "moon_stars"
+            unit = "hours"
         ),
         AchievementDefinition(
             id = "dream_team",
@@ -128,8 +120,7 @@ object AchievementRegistry {
             description = "Reach your sleep duration goal on 7 nights.",
             requirement = "Reach sleep goal on 7 nights",
             target = 7.0,
-            unit = "nights",
-            iconType = "target"
+            unit = "nights"
         ),
         AchievementDefinition(
             id = "consistent_sleeper",
@@ -138,8 +129,7 @@ object AchievementRegistry {
             description = "Reach your sleep duration goal 3 nights in a row.",
             requirement = "Reach sleep goal on 3 consecutive nights",
             target = 3.0,
-            unit = "nights",
-            iconType = "streak"
+            unit = "nights"
         ),
         AchievementDefinition(
             id = "sleep_routine",
@@ -148,8 +138,7 @@ object AchievementRegistry {
             description = "Maintain stable rest duration (within 45 min) on 4 recorded nights.",
             requirement = "Stable sleep duration on 4 nights",
             target = 4.0,
-            unit = "nights",
-            iconType = "clock"
+            unit = "nights"
         ),
 
         // C. WORKOUTS
@@ -160,8 +149,7 @@ object AchievementRegistry {
             description = "Record your first completed workout activity.",
             requirement = "Complete 1 workout session",
             target = 1.0,
-            unit = "workout",
-            iconType = "dumbbell"
+            unit = "workout"
         ),
         AchievementDefinition(
             id = "getting_active",
@@ -170,8 +158,7 @@ object AchievementRegistry {
             description = "Complete 5 workout sessions.",
             requirement = "Complete 5 workout sessions",
             target = 5.0,
-            unit = "workouts",
-            iconType = "dumbbell"
+            unit = "workouts"
         ),
         AchievementDefinition(
             id = "dedicated",
@@ -180,8 +167,7 @@ object AchievementRegistry {
             description = "Complete 25 workout sessions.",
             requirement = "Complete 25 workout sessions",
             target = 25.0,
-            unit = "workouts",
-            iconType = "crown"
+            unit = "workouts"
         ),
         AchievementDefinition(
             id = "half_hour_hero",
@@ -190,8 +176,7 @@ object AchievementRegistry {
             description = "Complete a workout session lasting at least 30 minutes.",
             requirement = "Workout lasting >= 30 min",
             target = 30.0,
-            unit = "min",
-            iconType = "clock"
+            unit = "min"
         ),
         AchievementDefinition(
             id = "endurance",
@@ -200,8 +185,7 @@ object AchievementRegistry {
             description = "Complete a workout session lasting at least 60 minutes.",
             requirement = "Workout lasting >= 60 min",
             target = 60.0,
-            unit = "min",
-            iconType = "flame"
+            unit = "min"
         ),
         AchievementDefinition(
             id = "variety",
@@ -210,8 +194,7 @@ object AchievementRegistry {
             description = "Complete workouts across at least 3 distinct activity categories.",
             requirement = "3 different activity types",
             target = 3.0,
-            unit = "types",
-            iconType = "spark"
+            unit = "types"
         ),
 
         // D. WORKOUT TIMING
@@ -222,8 +205,7 @@ object AchievementRegistry {
             description = "Start a workout between 05:00 and 08:00 local time.",
             requirement = "Start workout between 05:00 and 08:00",
             target = 1.0,
-            unit = "workout",
-            iconType = "sunrise"
+            unit = "workout"
         ),
         AchievementDefinition(
             id = "sunrise_session",
@@ -232,8 +214,7 @@ object AchievementRegistry {
             description = "Complete 3 early-morning workouts (05:00–08:00).",
             requirement = "3 workouts between 05:00 and 08:00",
             target = 3.0,
-            unit = "workouts",
-            iconType = "sunrise"
+            unit = "workouts"
         ),
         AchievementDefinition(
             id = "lunchtime_move",
@@ -242,8 +223,7 @@ object AchievementRegistry {
             description = "Start a workout between 12:00 and 14:00 local time.",
             requirement = "Start workout between 12:00 and 14:00",
             target = 1.0,
-            unit = "workout",
-            iconType = "sun"
+            unit = "workout"
         ),
         AchievementDefinition(
             id = "after_hours",
@@ -252,8 +232,7 @@ object AchievementRegistry {
             description = "Complete an evening workout between 18:00 and 23:59.",
             requirement = "Start workout after 18:00",
             target = 1.0,
-            unit = "workout",
-            iconType = "evening"
+            unit = "workout"
         ),
         AchievementDefinition(
             id = "weekend_warrior",
@@ -262,8 +241,7 @@ object AchievementRegistry {
             description = "Complete workouts on at least 3 weekend days (Saturday or Sunday).",
             requirement = "Workouts on 3 weekend days",
             target = 3.0,
-            unit = "days",
-            iconType = "spark"
+            unit = "days"
         ),
 
         // E. DISTANCE
@@ -274,8 +252,7 @@ object AchievementRegistry {
             description = "Reach 1 kilometer of walking or running in a single day.",
             requirement = "Cover >= 1.0 km in one day",
             target = 1.0,
-            unit = "km",
-            iconType = "route"
+            unit = "km"
         ),
         AchievementDefinition(
             id = "five_km_day",
@@ -284,8 +261,7 @@ object AchievementRegistry {
             description = "Cover at least 5 kilometers on foot in a single day.",
             requirement = "Cover >= 5.0 km in one day",
             target = 5.0,
-            unit = "km",
-            iconType = "route"
+            unit = "km"
         ),
         AchievementDefinition(
             id = "distance_explorer",
@@ -294,8 +270,7 @@ object AchievementRegistry {
             description = "Accumulate 50 km of total recorded distance.",
             requirement = "Accumulate 50 km total distance",
             target = 50.0,
-            unit = "km",
-            iconType = "route"
+            unit = "km"
         ),
         AchievementDefinition(
             id = "long_haul",
@@ -304,8 +279,7 @@ object AchievementRegistry {
             description = "Accumulate 100 km of total recorded distance.",
             requirement = "Accumulate 100 km total distance",
             target = 100.0,
-            unit = "km",
-            iconType = "route"
+            unit = "km"
         ),
 
         // F. ACTIVE MINUTES
@@ -316,8 +290,7 @@ object AchievementRegistry {
             description = "Reach 30 active minutes in a single day.",
             requirement = "30 active minutes in one day",
             target = 30.0,
-            unit = "min",
-            iconType = "clock"
+            unit = "min"
         ),
         AchievementDefinition(
             id = "active_week",
@@ -326,8 +299,7 @@ object AchievementRegistry {
             description = "Accumulate 150 active minutes in a 7-day period.",
             requirement = "150 active minutes in one week",
             target = 150.0,
-            unit = "min",
-            iconType = "target"
+            unit = "min"
         ),
         AchievementDefinition(
             id = "moving_regularly",
@@ -336,8 +308,7 @@ object AchievementRegistry {
             description = "Record active minutes on at least 5 separate days.",
             requirement = "Active minutes on 5 days",
             target = 5.0,
-            unit = "days",
-            iconType = "streak"
+            unit = "days"
         ),
 
         // G. CONSISTENCY & TRACKING
@@ -348,8 +319,7 @@ object AchievementRegistry {
             description = "First day with recorded health measurements.",
             requirement = "Record valid health data for 1 day",
             target = 1.0,
-            unit = "day",
-            iconType = "spark"
+            unit = "day"
         ),
         AchievementDefinition(
             id = "data_explorer",
@@ -358,8 +328,7 @@ object AchievementRegistry {
             description = "Track at least 3 distinct health metrics on a single day.",
             requirement = "Log 3 metrics on the same day",
             target = 3.0,
-            unit = "metrics",
-            iconType = "spark"
+            unit = "metrics"
         ),
         AchievementDefinition(
             id = "one_week_in",
@@ -368,8 +337,7 @@ object AchievementRegistry {
             description = "Record usable health data on 7 distinct days.",
             requirement = "7 days with recorded health data",
             target = 7.0,
-            unit = "days",
-            iconType = "streak"
+            unit = "days"
         ),
         AchievementDefinition(
             id = "consistent_tracker",
@@ -378,8 +346,7 @@ object AchievementRegistry {
             description = "Maintain 14 distinct days of recorded health records.",
             requirement = "14 days of recorded data",
             target = 14.0,
-            unit = "days",
-            iconType = "crown"
+            unit = "days"
         ),
 
         // H. SPECIAL
@@ -390,8 +357,7 @@ object AchievementRegistry {
             description = "Hit your step goal, sleep goal, and 30 active minutes on the same day.",
             requirement = "Meet 3 activity goals on one day",
             target = 1.0,
-            unit = "day",
-            iconType = "crown"
+            unit = "day"
         ),
         AchievementDefinition(
             id = "habit_builder",
@@ -400,8 +366,7 @@ object AchievementRegistry {
             description = "Reach your daily step goal on 15 separate days.",
             requirement = "Hit step goal 15 times",
             target = 15.0,
-            unit = "days",
-            iconType = "flame"
+            unit = "days"
         ),
         AchievementDefinition(
             id = "the_comeback",
@@ -410,8 +375,7 @@ object AchievementRegistry {
             description = "Complete a workout after a gap of at least 7 days between sessions.",
             requirement = "Workout after a 7-day break",
             target = 1.0,
-            unit = "workout",
-            iconType = "spark"
+            unit = "workout"
         )
     )
 }
@@ -424,7 +388,7 @@ object AchievementEngine {
         val timeStr = if (trimmed.contains("T")) trimmed.substringAfter("T") else trimmed
         return runCatching {
             val parts = timeStr.split(":")
-            parts.firstOrNull()?.toInt()
+            parts.firstOrNull()?.toInt()?.takeIf { it in 0..23 && parts.getOrNull(1)?.toIntOrNull() in 0..59 }
         }.getOrNull()
     }
 
@@ -434,15 +398,17 @@ object AchievementEngine {
      * Evaluates all registered achievements against historical days and preferences.
      * Pure and deterministic: never fabricates metrics, treats missing data as absent.
      */
-    fun evaluate(snapshot: HealthSnapshot, preferences: Preferences): List<UserAchievement> {
-        val days = HistoryMath.unique(snapshot.days).sortedBy { it.date }
+    fun evaluate(snapshot: HealthSnapshot, preferences: Preferences, today: LocalDate = LocalDate.now()): List<UserAchievement> {
+        val days = HistoryMath.unique(snapshot.days).filter { it.date <= today }.map { day ->
+            day.copy(readings = day.readings.filterValues { r -> r.state in setOf(DataState.READY, DataState.STALE) && r.value?.let { it.isFinite() && it >= 0 } == true })
+        }.sortedBy { it.date }
         val stepGoal = preferences.stepGoal.toDouble()
         val sleepGoal = preferences.sleepGoal
 
         // Extract all recorded activities across history
         val allActivities = days.flatMap { day ->
             day.activities.map { act -> day.date to act }
-        }.sortedBy { it.first }
+        }.distinctBy { it.second.id }.sortedBy { it.first }
 
         return AchievementRegistry.all.map { def ->
             when (def.id) {
@@ -475,7 +441,10 @@ object AchievementEngine {
                 "walking_streak" -> {
                     var maxStreak = 0
                     var currentStreak = 0
+                    var previous: LocalDate? = null
                     days.forEach { d ->
+                        if (previous != d.date.minusDays(1)) currentStreak = 0
+                        previous = d.date
                         if ((d.value(Metric.STEPS) ?: 0.0) >= stepGoal) {
                             currentStreak++
                             if (currentStreak > maxStreak) maxStreak = currentStreak
@@ -508,7 +477,10 @@ object AchievementEngine {
                 "consistent_sleeper" -> {
                     var maxStreak = 0
                     var currentStreak = 0
+                    var previous: LocalDate? = null
                     days.forEach { d ->
+                        if (previous != d.date.minusDays(1)) currentStreak = 0
+                        previous = d.date
                         if ((d.value(Metric.SLEEP) ?: 0.0) >= sleepGoal) {
                             currentStreak++
                             if (currentStreak > maxStreak) maxStreak = currentStreak
@@ -520,7 +492,7 @@ object AchievementEngine {
                     UserAchievement(def, maxStreak.toDouble().coerceAtMost(def.target), unlocked, null, "$maxStreak / ${def.target.toInt()} consecutive nights")
                 }
                 "sleep_routine" -> {
-                    val sleepValues = days.mapNotNull { it.value(Metric.SLEEP) }
+                    val sleepValues = days.mapNotNull { it.value(Metric.SLEEP)?.takeIf { hours -> hours > 0 } }
                     val avg = sleepValues.takeIf { it.isNotEmpty() }?.average() ?: 0.0
                     val stableCount = if (avg > 0) sleepValues.count { abs(it - avg) <= 0.75 }.toDouble() else 0.0
                     val unlocked = stableCount >= def.target
@@ -634,21 +606,15 @@ object AchievementEngine {
                     UserAchievement(def, maxAct.coerceAtMost(def.target), unlocked, unlockDay, "${maxAct.toInt()} / 30 min")
                 }
                 "active_week" -> {
-                    // Check any rolling 7-day window
-                    var maxWeekAct = 0.0
-                    if (days.size >= 7) {
-                        for (i in 0..days.size - 7) {
-                            val sum = (0..6).mapNotNull { days[i + it].value(Metric.ACTIVE) }.sum()
-                            if (sum > maxWeekAct) maxWeekAct = sum
-                        }
-                    } else {
-                        maxWeekAct = days.mapNotNull { it.value(Metric.ACTIVE) }.sum()
-                    }
+                    // Seven calendar days, including gaps with no records.
+                    val maxWeekAct = days.maxOfOrNull { end ->
+                        days.filter { it.date in end.date.minusDays(6)..end.date }.mapNotNull { it.value(Metric.ACTIVE) }.sum()
+                    } ?: 0.0
                     val unlocked = maxWeekAct >= def.target
                     UserAchievement(def, maxWeekAct.coerceAtMost(def.target), unlocked, null, "${maxWeekAct.toInt()} / ${def.target.toInt()} min")
                 }
                 "moving_regularly" -> {
-                    val count = days.count { (it.value(Metric.ACTIVE) ?: 0.0) >= 15.0 }.toDouble()
+                    val count = days.count { (it.value(Metric.ACTIVE) ?: 0.0) > 0.0 }.toDouble()
                     val unlocked = count >= def.target
                     UserAchievement(def, count.coerceAtMost(def.target), unlocked, null, "${count.toInt()} / ${def.target.toInt()} days")
                 }
@@ -706,7 +672,50 @@ object AchievementEngine {
                     UserAchievement(def, count, count >= 1.0, comebackDay, if (count >= 1.0) "Unlocked" else "0 / 1 workout")
                 }
 
-                else -> UserAchievement(def, 0.0, false, null, "Locked")
+                else -> error("Unimplemented achievement: ${def.id}")
+            }
+        }.map { item ->
+            if(!item.unlocked || item.unlockedDate != null) item else {
+                val target=item.definition.target
+                fun counted(predicate: (DayData)->Boolean) = days.filter(predicate).getOrNull(target.toInt()-1)?.date
+                fun cumulative(metric: Metric): LocalDate? {
+                    var total=0.0
+                    return days.firstOrNull { total += it.value(metric) ?: 0.0; total >= target }?.date
+                }
+                fun streak(metric: Metric, goal: Double): LocalDate? {
+                    var length=0;var prior: LocalDate?=null
+                    return days.firstOrNull {
+                        if(prior!=it.date.minusDays(1)) length=0
+                        prior=it.date
+                        length=if((it.value(metric) ?: 0.0)>=goal) length+1 else 0
+                        length>=target
+                    }?.date
+                }
+                val date=when(item.definition.id) {
+                    "step_consistency", "habit_builder" -> counted { (it.value(Metric.STEPS) ?: 0.0)>=stepGoal }
+                    "walking_streak" -> streak(Metric.STEPS,stepGoal)
+                    "dream_team" -> counted { (it.value(Metric.SLEEP) ?: 0.0)>=sleepGoal }
+                    "consistent_sleeper" -> streak(Metric.SLEEP,sleepGoal)
+                    "sleep_routine" -> {
+                        val nights=mutableListOf<Double>()
+                        days.firstOrNull { day ->
+                            day.value(Metric.SLEEP)?.takeIf { it>0 }?.let(nights::add)
+                            val avg=nights.takeIf { it.isNotEmpty() }?.average() ?: 0.0
+                            nights.count { abs(it-avg)<=.75 }>=target
+                        }?.date
+                    }
+                    "getting_active", "dedicated" -> allActivities.getOrNull(target.toInt()-1)?.first
+                    "variety" -> { val types=mutableSetOf<String>();allActivities.firstOrNull { types.add(it.second.type);types.size>=target }?.first }
+                    "sunrise_session" -> allActivities.filter { parseLocalHour(it.second.localStart) in 5..7 }.getOrNull(target.toInt()-1)?.first
+                    "weekend_warrior" -> allActivities.map {it.first}.distinct().filter {it.dayOfWeek.value>=6}.getOrNull(target.toInt()-1)
+                    "distance_explorer", "long_haul" -> cumulative(Metric.DISTANCE)
+                    "active_week" -> days.firstOrNull { end -> days.filter {it.date in end.date.minusDays(6)..end.date}.sumOf {it.value(Metric.ACTIVE) ?: 0.0}>=target }?.date
+                    "moving_regularly" -> counted { (it.value(Metric.ACTIVE) ?: 0.0)>0 }
+                    "data_explorer" -> days.firstOrNull { it.readings.values.count {r->r.value!=null}>=target }?.date
+                    "one_week_in", "consistent_tracker" -> counted {it.readings.isNotEmpty()}
+                    else -> null
+                }
+                item.copy(unlockedDate=date)
             }
         }
     }

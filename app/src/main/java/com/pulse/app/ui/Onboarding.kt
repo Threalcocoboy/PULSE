@@ -8,6 +8,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.*
+import androidx.compose.ui.semantics.*
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -15,15 +16,15 @@ import androidx.compose.ui.unit.*
 import com.pulse.app.R
 import com.pulse.app.core.*
 
-@Composable fun Onboarding(p: Preferences,update: (((Preferences)->Preferences))->Unit,connect:()->Unit,finish:()->Unit) {
+@Composable fun Onboarding(p: Preferences,snapshot: HealthSnapshot,update: (((Preferences)->Preferences))->Unit,connect:()->Unit,finish:()->Unit) {
     var page by rememberSaveable { mutableIntStateOf(0) }
     BackHandler(page>0) { page-- }
     Column(Modifier.fillMaxSize().safeDrawingPadding().padding(24.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(24.dp)) {
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) { DotWordmark(); Label("0${page+1} / 05") }
-        Spacer(Modifier.height(24.dp))
+        LinearProgressIndicator(progress={ (page+1)/5f },modifier=Modifier.fillMaxWidth().semantics {contentDescription="Onboarding step ${page+1} of 5"},color=Red)
         when(page) {
             0 -> {
-                Image(painterResource(R.drawable.pulse_logo),"Official PULSE logo",Modifier.fillMaxWidth().aspectRatio(3.1f).background(androidx.compose.ui.graphics.Color.Black,RoundedCornerShape(12.dp)),contentScale=ContentScale.Fit)
+                PulseIntro(Modifier.fillMaxWidth().height(140.dp))
                 Spacer(Modifier.height(20.dp))
                 Text("Your health.\nYour way.",style=MaterialTheme.typography.displayLarge)
                 Text("One place for your health, activity and recovery.",color=MaterialTheme.colorScheme.onSurfaceVariant)
@@ -32,7 +33,8 @@ import com.pulse.app.core.*
             }
             1 -> {
                 SectionTitle("A clear connection.","You choose what PULSE can read.")
-                PulseCard { Label("ANDROID HEALTH CONNECT",color=Red); Text("Steps, sleep, heart rate and distance",style=MaterialTheme.typography.titleLarge); Text("Read only. Permission can be changed at any time. Only records shared by your health apps are available."); PulseButton("Authorize Health Connect",onClick=connect) }
+                PulseCard { Label("ANDROID HEALTH CONNECT",color=Red); Text("Steps, sleep, heart rate and distance",style=MaterialTheme.typography.titleLarge); Text("Read only. Permission can be changed at any time. Only records shared by your health apps are available."); PulseButton(if(snapshot.mode==DataMode.HEALTH_CONNECT && com.pulse.app.integration.HealthConnectRepository.permissions.any {it in snapshot.granted}) "✓ Health Connect connected" else "Authorize Health Connect",onClick=connect)
+                    if(snapshot.mode==DataMode.HEALTH_CONNECT) {if(snapshot.loading) EcgSync() else Text(snapshot.error ?: snapshot.status,style=MaterialTheme.typography.bodySmall)} }
                 PulseCard {Label("Garmin Personal API");Text("Import your own key securely in Settings after setup. Garmin is an independent read-only source; its data is kept separate from Health Connect.",style=MaterialTheme.typography.bodySmall)}
                 SmallAction("Use clearly labeled demo data") { update {it.copy(mode=DataMode.DEMO)} }
                 PulseButton("Continue",Modifier.fillMaxWidth()) { page=2 }
@@ -51,6 +53,7 @@ import com.pulse.app.core.*
                 PulseButton("Continue",Modifier.fillMaxWidth()) {page=4}
             }
             else -> {
+                SuccessMark()
                 SectionTitle("All set.","A little more awareness. A space of your own.")
                 PulseCard { Label(if(p.mode==DataMode.DEMO) "DEMO MODE" else "HEALTH CONNECT",color=Red); Text(if(p.mode==DataMode.DEMO) "Explore with deterministic sample data. Your real health records stay separate." else "Your dashboard shows only available, permitted measurements. Missing data stays empty.") }
                 PulseButton("Open PULSE",Modifier.fillMaxWidth(),onClick=finish)
@@ -60,11 +63,30 @@ import com.pulse.app.core.*
     }
 }
 @Composable fun GoalEditor(p: Preferences,update: (((Preferences)->Preferences))->Unit) {
-    var steps by rememberSaveable(p.stepGoal) {mutableStateOf(p.stepGoal.toString())}
-    var sleep by rememberSaveable(p.sleepGoal) {mutableStateOf(p.sleepGoal.toString())}
-    OutlinedTextField(steps,{ steps=it.filter(Char::isDigit).take(6) },label={Text("Daily step goal")},singleLine=true,modifier=Modifier.fillMaxWidth(),keyboardOptions=androidx.compose.foundation.text.KeyboardOptions(keyboardType=androidx.compose.ui.text.input.KeyboardType.Number))
-    OutlinedTextField(sleep,{sleep=it.take(5)},label={Text("Sleep goal · hours")},singleLine=true,modifier=Modifier.fillMaxWidth(),keyboardOptions=androidx.compose.foundation.text.KeyboardOptions(keyboardType=androidx.compose.ui.text.input.KeyboardType.Decimal))
-    val valid=(steps.toIntOrNull() ?: 0) in 100..100000 && (sleep.toDoubleOrNull() ?: 0.0) in 1.0..16.0
-    PulseButton("Save goals",enabled=valid) {update {it.copy(stepGoal=steps.toInt(),sleepGoal=sleep.toDouble())}}
-    Label("CURRENT: ${number(p.stepGoal.toDouble())} STEPS · ${p.sleepGoal}H SLEEP")
+    var draft by remember(p) { mutableStateOf(p) }
+    var saved by remember { mutableStateOf(false) }
+    Goals.available(p.mode).forEach { metric ->
+        val enabled=metric in draft.enabledGoals
+        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+            Checkbox(enabled,{ checked -> draft=draft.copy(enabledGoals=if(checked) draft.enabledGoals+metric else draft.enabledGoals-metric);saved=false })
+            Text(if(metric==Metric.ACTIVITIES) "Workouts per week" else metric.label,Modifier.weight(1f))
+            if(enabled) Text("${number(Goals.target(metric,draft))} ${if(metric==Metric.ACTIVITIES) "sessions" else metric.unit}")
+        }
+        if(enabled) {
+            val range=when(metric) { Metric.STEPS->1000f..30000f;Metric.SLEEP->4f..12f;Metric.DISTANCE->.5f..30f;Metric.ACTIVE->5f..180f;else->1f..14f }
+            Slider(Goals.target(metric,draft).toFloat().coerceIn(range),{ value ->
+                draft=when(metric) {
+                    Metric.STEPS->draft.copy(stepGoal=(value/100).toInt()*100)
+                    Metric.SLEEP->draft.copy(sleepGoal=(value*4).toInt()/4.0)
+                    Metric.DISTANCE->draft.copy(distanceGoal=(value*2).toInt()/2.0)
+                    Metric.ACTIVE->draft.copy(activeGoal=value.toInt())
+                    else->draft.copy(workoutGoal=value.toInt())
+                };saved=false
+            },valueRange=range,modifier=Modifier.semantics {contentDescription="${metric.label} goal"})
+        }
+    }
+    PulseButton(if(saved) "✓ Goals saved" else "Save goals",enabled=draft.enabledGoals.isNotEmpty()) {
+        val goals=draft
+        update { it.copy(stepGoal=goals.stepGoal,sleepGoal=goals.sleepGoal,distanceGoal=goals.distanceGoal,activeGoal=goals.activeGoal,workoutGoal=goals.workoutGoal,enabledGoals=goals.enabledGoals) };saved=true
+    }
 }

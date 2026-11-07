@@ -8,7 +8,7 @@ import kotlin.random.Random
 class AdaptiveFlowTest {
     @Test fun emptyGrid() {assertEquals(emptyList<Widget>(),AdaptiveFlow.pack(emptyList()))}
     @Test fun defaultsDoNotOverlap() {assertTrue(AdaptiveFlow.isValid(AdaptiveFlow.defaults()))}
-    @Test fun selectedPlacementIsReserved() {val list=AdaptiveFlow.defaults();val packed=AdaptiveFlow.pack(list,"heart",2,5);assertEquals(2,packed.first{it.id=="heart"}.column);assertEquals(5,packed.first{it.id=="heart"}.row);assertTrue(AdaptiveFlow.isValid(packed));assertEquals(list.size,packed.size)}
+    @Test fun selectedPlacementChangesOrderWithoutReservingEmptyRows() {val list=AdaptiveFlow.defaults();val packed=AdaptiveFlow.pack(list,"heart",2,50);assertTrue(packed.first{it.id=="heart"}.row<50);assertTrue(AdaptiveFlow.isValid(packed));assertEquals(list.size,packed.size)}
     @Test fun expansionAtRightEdgeClamps() {val list=AdaptiveFlow.defaults().map{if(it.id=="heart")it.copy(width=4,height=3)else it};val result=AdaptiveFlow.pack(list,"heart",3,1);assertEquals(0,result.first{it.id=="heart"}.column);assertTrue(AdaptiveFlow.isValid(result))}
     @Test fun shrinkingFillsGap() {val large=Widget("a",Metric.STEPS,width=4,height=2);val b=Widget("b",Metric.SLEEP);val c=Widget("c",Metric.HEART);val before=AdaptiveFlow.pack(listOf(large,b,c));val after=AdaptiveFlow.pack(before.map{if(it.id=="a")it.copy(width=2,height=1)else it},"a",0,0);assertEquals(0,after.first{it.id=="b"}.row);assertTrue(AdaptiveFlow.isValid(after))}
     @Test fun deterministic() {val layout=AdaptiveFlow.defaults();assertEquals(AdaptiveFlow.pack(layout,"sleep",1,3),AdaptiveFlow.pack(layout,"sleep",1,3))}

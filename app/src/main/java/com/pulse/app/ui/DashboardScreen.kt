@@ -1,6 +1,9 @@
 package com.pulse.app.ui
 
 import androidx.compose.foundation.*
+import androidx.compose.foundation.gestures.*
+import androidx.compose.ui.input.pointer.*
+import androidx.compose.ui.semantics.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -34,26 +37,41 @@ import kotlin.math.abs
     var selected by rememberSaveable {mutableStateOf<String?>(null)}
     var configure by rememberSaveable {mutableStateOf(false)}
     var add by rememberSaveable {mutableStateOf(false)}
+    var newWidget by remember { mutableStateOf<Widget?>(null) }
+    var pending by remember { mutableStateOf<Widget?>(null) }
+    fun startAdd() { if(layout.size<100) {newWidget=Widget(UUID.randomUUID().toString(),Metric.STEPS);add=true} }
     var viewportTop by remember {mutableFloatStateOf(0f)}
     var viewportHeight by remember {mutableFloatStateOf(0f)}
     val scroll=rememberScrollState()
     val haptics=LocalHapticFeedback.current
     val today=LocalDate.now()
     val current=snapshot.days.firstOrNull {it.date==today}
-    LaunchedEffect(editing) {if(!editing) {selected=null;configure=false}}
+    LaunchedEffect(editing) {if(!editing) {selected=null;configure=false;pending=null;add=false}}
+    LaunchedEffect(pending?.id) {
+        if(pending!=null) { withFrameNanos { }; scroll.scrollTo(scroll.maxValue) }
+    }
     fun beginEdit() {if(!editing && p.haptics)haptics.performHapticFeedback(HapticFeedbackType.LongPress);vm.edit(true)}
 
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(start=PulseTokens.screenPadding,end=8.dp,top=4.dp,bottom=4.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween) {
             if(editing) Text("PULSE Studio",style=MaterialTheme.typography.titleMedium) else DotWordmark()
-            Row {if(editing)SmallAction("Done"){vm.edit(false)}else {IconAction("edit","Edit dashboard"){vm.edit(true)};IconAction("settings","Settings",onClick=settings)}}
+            Row {if(editing)SmallAction("Done"){pending=null;vm.edit(false)}else {IconAction("edit","Edit dashboard"){vm.edit(true)};IconAction("settings","Settings",onClick=settings)}}
         }
         if(editing) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal=8.dp),verticalAlignment=Alignment.CenterVertically) {
             SmallAction("Undo",undo,vm::undo);SmallAction("Redo",redo,vm::redo)
-            SmallAction("+ Add"){add=true};SmallAction("Configure",selected!=null){configure=true};SmallAction("Reset",onClick=vm::resetLayout)
+            SmallAction("+ Add",pending==null){startAdd()};SmallAction("Configure",selected!=null){configure=true};SmallAction("Reset",onClick=vm::resetLayout)
+        }
+        if(editing) {
+            Text(if(pending!=null) "Drag the preview to place it, or tap Place widget." else "One finger to move · two fingers to scroll",Modifier.padding(horizontal=20.dp),style=MaterialTheme.typography.bodySmall)
+            if(pending!=null) Row(Modifier.padding(horizontal=20.dp)) {
+                SmallAction("Place widget") {vm.commit(AdaptiveFlow.pack(layout+pending!!));pending=null}
+                SmallAction("Cancel placement") {pending=null;selected=null}
+            }
         }
         Column(Modifier.weight(1f).onGloballyPositioned {viewportTop=it.positionInRoot().y;viewportHeight=it.size.height.toFloat()}
-            .verticalScroll(scroll).padding(horizontal=PulseTokens.screenPadding),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+            .editScroll(editing,scroll).verticalScroll(scroll,enabled=!editing).semantics {
+                if(editing) customActions=listOf(CustomAccessibilityAction("Scroll dashboard down") {scroll.dispatchRawDelta(400f);true},CustomAccessibilityAction("Scroll dashboard up") {scroll.dispatchRawDelta(-400f);true})
+            }.padding(horizontal=PulseTokens.screenPadding),verticalArrangement=Arrangement.spacedBy(12.dp)) {
             if(!editing) {
                 Row(Modifier.fillMaxWidth().padding(top=8.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween) {
                     Text(when(LocalTime.now().hour){in 5..11->"Good morning";in 12..17->"Good afternoon";else->"Good evening"},style=MaterialTheme.typography.headlineMedium)
@@ -61,10 +79,10 @@ import kotlin.math.abs
                 }
                 CompactSourceStatus(snapshot,p.mode){vm.refresh()}
             }
-            if(snapshot.loading) LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp),color=Red)
-            if(layout.isEmpty()) {Text("Your dashboard is empty.");PulseButton("Add widget"){vm.edit(true);add=true}}
+            if(snapshot.loading) EcgSync()
+            if(layout.isEmpty()) {Text("Your dashboard is empty.");PulseButton("Add widget"){vm.edit(true);startAdd()}}
             StudioGrid(
-                layout = layout,
+                layout = pending?.let { AdaptiveFlow.pack(layout+it) } ?: layout,
                 editing = editing,
                 selected = selected,
                 scroll = scroll,
@@ -72,8 +90,8 @@ import kotlin.math.abs
                 viewportHeight = viewportHeight,
                 select = { selected = it },
                 beginEdit = ::beginEdit,
-                commit = vm::commit,
-                configure = { selected = it; configure = true },
+                commit = {vm.commit(it);pending=null},
+                configure = { id -> selected=id;if(pending?.id==id) {newWidget=pending;add=true} else configure=true },
                 openMetric = { metricDetail(it, today) }
             ) { w -> MetricWidget(w, p, current, snapshot.days, snapshot.loading) }
             if(!editing && p.insights) {
@@ -87,20 +105,15 @@ import kotlin.math.abs
             Spacer(Modifier.height(12.dp))
         }
     }
-    if(add) ModalBottomSheet(onDismissRequest={add=false},sheetState=rememberModalBottomSheetState(skipPartiallyExpanded=true)) {
-        Column(Modifier.padding(24.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(4.dp)) {
-            SectionTitle("Add widget")
-            Metric.entries.forEach {metric->TextButton({if(layout.size<100){val w=Widget(UUID.randomUUID().toString(),metric);vm.commit(AdaptiveFlow.pack(layout+w));selected=w.id;add=false}},Modifier.fillMaxWidth()) {
-                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text(metric.label);Glyph("add")}
-            }}
-        }
-    }
+    if(add) newWidget?.let { draft -> WidgetSheet(draft,p,snapshot,{add=false}, {next ->
+        pending=next;selected=next.id;add=false
+    },{add=false;pending=null},isNew=true) }
     if(configure)layout.firstOrNull {it.id==selected}?.let {w->WidgetSheet(
         w,
         p,
         snapshot,
         {configure=false},
-        {next->vm.commit(AdaptiveFlow.pack(layout.map {if(it.id==w.id)next else it},w.id,next.column,next.row))},
+        {next->vm.commit(AdaptiveFlow.configure(layout,w.id,next))},
         {vm.commit(AdaptiveFlow.pack(layout.filterNot {it.id==w.id}));configure=false;selected=null}
     )}
 }

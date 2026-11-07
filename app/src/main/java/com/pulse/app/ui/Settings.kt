@@ -66,9 +66,9 @@ private fun Modifier.toggleableCompat(checked: Boolean,change:(Boolean)->Unit)=t
                     DataMode.HEALTH_CONNECT->{
                         Text("Health Connect",style=MaterialTheme.typography.titleMedium)
                         Label(if(vm.healthConnect.availability()==androidx.health.connect.client.HealthConnectClient.SDK_AVAILABLE)"Available on this device"else"Unavailable or needs an update")
-                        Text("Read-only steps, sleep sessions, average heart rate and distance. Recent 29 calendar days; foreground sync.",style=MaterialTheme.typography.bodySmall)
-                        PulseButton("Review / request permissions",onClick=connect)
-                        HealthConnectRepository.permissions.forEach{permission->Label("${if(permission in snapshot.granted)"Granted"else"Missing"} · ${permission.substringAfterLast('.').removePrefix("READ_").lowercase().replace('_',' ')}")}
+                        Text("Read-only steps, sleep sessions, average heart rate and distance. Recent history by default; optional history access imports up to 12 months. Hourly background refresh requires background access.",style=MaterialTheme.typography.bodySmall)
+                        PulseButton(if(HealthConnectRepository.permissions.any {it in snapshot.granted}) "✓ Connected · review permissions" else "Review / request permissions",onClick=connect)
+                        vm.healthConnect.requestedPermissions().forEach{permission->Label("${if(permission in snapshot.granted)"Granted"else"Missing"} · ${permission.substringAfterLast('.').removePrefix("READ_").lowercase().replace('_',' ')}")}
                     }
                     DataMode.DEMO->Text("Deterministic samples only. Demo mode never writes genuine health or medal records.",style=MaterialTheme.typography.bodySmall)
                 }

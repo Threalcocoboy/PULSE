@@ -16,25 +16,36 @@ data class Widget(val id: String, val metric: Metric, val shape: WidgetShape = W
 }
 object AdaptiveFlow {
     const val COLUMNS = 4
+    fun configure(widgets: List<Widget>, id: String, replacement: Widget): List<Widget> {
+        require(widgets.any { it.id == id })
+        require(replacement.id == id && Footprint(replacement.width,replacement.height) in replacement.allowedSizes())
+        return pack(widgets.map { if(it.id == id) replacement else it })
+    }
+    /** A move changes reading order; it never reserves empty rows. First-fit also backfills
+     * holes with later small tiles. Returning packing order makes persistence idempotent. */
     fun pack(widgets: List<Widget>, selected: String? = null, column: Int = 0, row: Int = 0): List<Widget> {
-        require(widgets.size <= 100) { "Dashboard supports up to 100 widgets" }
-        require(widgets.map { it.id }.distinct().size == widgets.size) { "Duplicate widget IDs" }
-        widgets.forEach { require(Footprint(it.width, it.height) in it.allowedSizes()) { "Unsupported footprint" } }
-        val occupied = mutableSetOf<Pair<Int, Int>>()
-        fun fits(w: Widget, x: Int, y: Int) = x >= 0 && x+w.width <= COLUMNS && y >= 0 &&
-            (y until y+w.height).all { r -> (x until x+w.width).all { c -> c to r !in occupied } }
-        fun reserve(w: Widget, x: Int, y: Int): Widget {
+        require(widgets.size <= 100)
+        require(widgets.map { it.id }.distinct().size == widgets.size)
+        widgets.forEach { require(it.id.matches(Regex("[A-Za-z0-9_-]{1,80}")) && Footprint(it.width,it.height) in it.allowedSizes()) }
+        val order = widgets.toMutableList()
+        widgets.firstOrNull { it.id == selected }?.let { chosen ->
+            order.removeAll { it.id == selected }
+            val destination = row.coerceAtLeast(0) * COLUMNS + column.coerceIn(0,COLUMNS-chosen.width)
+            val forward=destination > chosen.row*COLUMNS+chosen.column
+            val index = order.indexOfFirst {
+                val anchor=it.row*COLUMNS+it.column
+                if(forward) anchor>destination else anchor>=destination
+            }
+            order.add(if(index < 0) order.size else index,chosen)
+        }
+        val occupied = mutableSetOf<Pair<Int,Int>>()
+        return order.map { w ->
+            var y=0; var x=0
+            fun fits() = (y until y+w.height).all { r -> (x until x+w.width).all { c -> c to r !in occupied } }
+            while(!fits()) { x++; if(x+w.width>COLUMNS) {x=0;y++} }
             for(r in y until y+w.height) for(c in x until x+w.width) occupied += c to r
-            return w.copy(column = x, row = y)
+            w.copy(column=x,row=y)
         }
-        val result = mutableMapOf<String, Widget>()
-        widgets.firstOrNull { it.id == selected }?.let { result[it.id] = reserve(it, column.coerceIn(0, COLUMNS-it.width), row.coerceIn(0, widgets.size*4)) }
-        widgets.filter { it.id != selected }.forEach { w ->
-            var y = 0; var x = 0
-            while(!fits(w, x, y)) { x++; if(x+w.width > COLUMNS) { x = 0; y++ } }
-            result[w.id] = reserve(w, x, y)
-        }
-        return widgets.map { result.getValue(it.id) }
     }
     fun isValid(widgets: List<Widget>): Boolean {
         if(widgets.size > 100 || widgets.map { it.id }.distinct().size != widgets.size || widgets.any { !it.valid() }) return false
@@ -53,7 +64,7 @@ object LayoutCodec {
         val rows = raw.removePrefix("v1\n").lines().filter { it.isNotBlank() }
         val result = rows.map { row -> val a = row.split('|'); require(a.size == 10)
             Widget(a[0],Metric.valueOf(a[1]),WidgetShape.valueOf(a[2]),a[3].toInt(),a[4].toInt(),a[5].toInt(),a[6].toInt(),a[7].toBooleanStrict(),a[8].toBooleanStrict(),a[9].toBooleanStrict()) }
-        require(AdaptiveFlow.isValid(result)); result
+        require(AdaptiveFlow.isValid(result)); AdaptiveFlow.pack(result)
     }.getOrElse { AdaptiveFlow.defaults() }
 }
 class LayoutHistory(initial: List<Widget>) {

@@ -9,7 +9,7 @@ enum class Metric(val label: String, val unit: String, val cumulative: Boolean =
     RESTING_HEART("Resting heart", "bpm"), SLEEP("Sleep", "h"), SLEEP_STAGES("Sleep stages", "h"),
     BATTERY("Body Battery", "%"), STRESS("Stress", "/100"), HRV("HRV", "ms"),
     ACTIVE("Active minutes", "min", true), CALORIES("Calories", "kcal", true),
-    ACTIVITIES("Activities", "sessions", true), GOAL("Daily goal", "%"), WEEKLY("Weekly steps", "steps", true), TREND("Step trend", "steps")
+    ACTIVITIES("Activities", "sessions", true), GOAL("Goals", "%"), WEEKLY("Weekly steps", "steps", true), TREND("Step trend", "steps")
 }
 enum class DataMode { DEMO, HEALTH_CONNECT, GARMIN }
 enum class DataState { READY, EMPTY, PERMISSION_DENIED, UNSUPPORTED, UNAVAILABLE, ERROR, STALE }
@@ -23,8 +23,13 @@ data class HealthSnapshot(val days: List<DayData> = emptyList(), val status: Str
     val available: Set<Metric> = emptySet(), val granted: Set<String> = emptySet(), val loading: Boolean = false, val error: String? = null, val mode: DataMode = DataMode.HEALTH_CONNECT)
 data class Preferences(val onboarded: Boolean = false, val mode: DataMode = DataMode.DEMO, val stepGoal: Int = 5530,
     val sleepGoal: Double = 8.0, val theme: String = "DARK", val animations: Boolean = true, val haptics: Boolean = true,
-    val insights: Boolean = true, val imperial: Boolean = false) {
+    val insights: Boolean = true, val imperial: Boolean = false,
+    val distanceGoal: Double = 5.0, val activeGoal: Int = 30, val workoutGoal: Int = 3,
+    val enabledGoals: Set<Metric> = setOf(Metric.STEPS, Metric.SLEEP)) {
     fun sanitized() = copy(stepGoal = stepGoal.coerceIn(100, 100000), sleepGoal = sleepGoal.takeIf { it.isFinite() }?.coerceIn(1.0, 16.0) ?: 8.0,
+        distanceGoal = distanceGoal.takeIf { it.isFinite() }?.coerceIn(.5,100.0) ?: 5.0,
+        activeGoal = activeGoal.coerceIn(5,300), workoutGoal = workoutGoal.coerceIn(1,21),
+        enabledGoals = enabledGoals.intersect(Goals.supported).ifEmpty { setOf(Metric.STEPS) },
         theme = theme.takeIf { it in setOf("DARK", "LIGHT", "SYSTEM") } ?: "DARK")
 }
 object DemoData {

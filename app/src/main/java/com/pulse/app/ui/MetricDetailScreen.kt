@@ -413,6 +413,7 @@ import kotlin.math.roundToInt
     p: Preferences,
     snapshot: HealthSnapshot
 ) {
+    val locale = androidx.compose.ui.platform.LocalConfiguration.current.locales[0]
     val past14 = remember(snapshot.days, date) {
         (0L..13L).map { ago ->
             val d = date.minusDays(13 - ago)
@@ -431,7 +432,7 @@ import kotlin.math.roundToInt
         )
         if (diff != null) {
             Text(
-                "${if (diff >= 0) "+" else ""}${String.format(java.util.Locale.getDefault(), "%.1f", diff)} bpm vs 14-day baseline",
+                "${if (diff >= 0) "+" else ""}${String.format(locale, "%.1f", diff)} bpm vs 14-day baseline",
                 style = MaterialTheme.typography.bodySmall,
                 color = if (abs(diff) > 4) Red else MaterialTheme.colorScheme.onSurfaceVariant
             )

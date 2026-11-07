@@ -6,6 +6,7 @@ import android.graphics.Typeface
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -32,408 +33,108 @@ import java.time.format.DateTimeFormatter
 import kotlin.math.*
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable fun AchievementsScreen(snapshot: HealthSnapshot, detail: (YearMonth) -> Unit) {
-    val preferences = Preferences()
-    val allAchievements = remember(snapshot.days) {
-        AchievementEngine.evaluate(snapshot, preferences)
-    }
+@Composable fun AchievementsScreen(snapshot: HealthSnapshot, allAchievements: List<UserAchievement>, fullYear: (Int)->Unit, detail: (YearMonth) -> Unit) {
+    var category by rememberSaveable { mutableStateOf(AchievementCategory.ALL.name) }
+    var status by rememberSaveable { mutableStateOf(AchievementFilter.ALL.name) }
+    var monthText by rememberSaveable { mutableStateOf(YearMonth.now().toString()) }
+    var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
+    var showCategories by rememberSaveable { mutableStateOf(false) }
+    val month = YearMonth.parse(monthText)
+    val today = LocalDate.now()
+    val monthly = allAchievements.filter { it.period == month }.ifEmpty { AchievementCollection.monthly(snapshot,month,today) }
+    val collection = allAchievements.filter { it.period == null } + monthly
+    val selectedCategory = AchievementCategory.valueOf(category)
+    val selectedStatus = AchievementFilter.valueOf(status)
+    val filtered = remember(collection, category, status) { AchievementCollection.filter(collection, selectedStatus, selectedCategory) }
+    val lifetime = allAchievements.filter { it.period == null }
+    val earned = lifetime.count { it.unlocked }
+    val selected = (allAchievements + monthly).firstOrNull { it.instanceId == selectedId }
 
-    var selectedCategory by rememberSaveable { mutableStateOf(AchievementCategory.ALL.name) }
-    var selectedAchievement by remember { mutableStateOf<UserAchievement?>(null) }
-    var viewMonthlyMedals by rememberSaveable { mutableStateOf(false) }
-
-    val unlockedCount = allAchievements.count { it.unlocked }
-    val totalCount = allAchievements.size
-    val recentUnlocked = allAchievements.filter { it.unlocked }.maxByOrNull { it.unlockedDate ?: LocalDate.MIN }
-
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(PulseTokens.screenPadding),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        SectionTitle("Achievements", "Badges & Milestones")
-        if (LocalDemo.current) Label("●  DEMO MODE · SAMPLE ACHIEVEMENTS", color = Red)
-
-        // Progress Overview Header
-        PulseCard(Modifier.fillMaxWidth()) {
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Label("OVERALL PROGRESS")
-                    Text("$unlockedCount / $totalCount", fontSize = 28.sp, fontWeight = FontWeight.Normal)
-                    Label("${(unlockedCount.toDouble() / totalCount * 100).toInt()}% completed")
-                }
-                Box(Modifier.size(64.dp), contentAlignment = Alignment.Center) {
-                    DotRing(unlockedCount.toDouble() / totalCount, Modifier.fillMaxSize())
-                    Text("${(unlockedCount.toDouble() / totalCount * 100).toInt()}%", fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(PulseTokens.screenPadding), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        SectionTitle("Achievements", "Your collection")
+        if (LocalDemo.current) Label("Demo · sample achievements", color = Red)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+            Column(Modifier.weight(1f)) {
+                Text("$earned / ${lifetime.size}", style = MaterialTheme.typography.headlineLarge)
+                Text("Lifetime achievements unlocked", style = MaterialTheme.typography.bodySmall)
             }
-
-            recentUnlocked?.let { recent ->
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
-                Row(
-                    Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    PulseBadgeArt(recent, Modifier.size(36.dp), compact = true)
-                    Column {
-                        Label("RECENTLY UNLOCKED", color = Red)
-                        Text(recent.definition.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+            DotRing(if (lifetime.isEmpty()) 0.0 else earned.toDouble()/lifetime.size, Modifier.size(56.dp))
+        }
+        HorizontalDivider()
+        MonthlySpotlight(snapshot,allAchievements,month,{monthText=it.toString()},{selectedId=it.instanceId},fullYear)
+        HorizontalDivider()
+        Text("Explore collection", style = MaterialTheme.typography.titleLarge)
+        // Two rows stay readable at narrow widths and larger font sizes.
+        Column {
+            AchievementFilter.entries.chunked(2).forEach { options ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    options.forEach { filter ->
+                        FilterChip(selected = selectedStatus == filter, onClick = { status=filter.name }, modifier=Modifier.weight(1f), label={Text(filter.label, style=MaterialTheme.typography.bodyMedium)})
                     }
                 }
             }
         }
-
-        // Category Filter Chips
-        Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            FilterChip(
-                selected = !viewMonthlyMedals && selectedCategory == AchievementCategory.ALL.name,
-                onClick = { viewMonthlyMedals = false; selectedCategory = AchievementCategory.ALL.name },
-                label = { Text("All") },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = MaterialTheme.colorScheme.onSurface,
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
-            )
-
-            AchievementCategory.entries.filterNot { it == AchievementCategory.ALL }.forEach { cat ->
-                val selected = !viewMonthlyMedals && selectedCategory == cat.name
-                FilterChip(
-                    selected = selected,
-                    onClick = { viewMonthlyMedals = false; selectedCategory = cat.name },
-                    label = { Text(cat.label) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.onSurface,
-                        containerColor = MaterialTheme.colorScheme.surface
-                    )
-                )
-            }
-
-            FilterChip(
-                selected = viewMonthlyMedals,
-                onClick = { viewMonthlyMedals = true },
-                label = { Text("Monthly Steps") },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = MaterialTheme.colorScheme.onSurface,
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
-            )
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedButton(onClick={showCategories=true}, modifier=Modifier.weight(1f)) { Text("Category: ${selectedCategory.label} ▾") }
+            if(category != AchievementCategory.ALL.name || status != AchievementFilter.ALL.name) TextButton(onClick={category=AchievementCategory.ALL.name;status=AchievementFilter.ALL.name}) { Text("Reset") }
         }
-
-        if (viewMonthlyMedals) {
-            // Preserved Monthly Step Badges Collection
-            MonthlyMedalsSection(snapshot, detail)
-        } else {
-            // Badges Grid
-            val filtered = if (selectedCategory == AchievementCategory.ALL.name) {
-                allAchievements
-            } else {
-                allAchievements.filter { it.definition.category.name == selectedCategory }
-            }
-
-            val rows = (filtered.size + 1) / 2
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                repeat(rows) { r ->
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        val item1 = filtered.getOrNull(r * 2)
-                        val item2 = filtered.getOrNull(r * 2 + 1)
-
-                        if (item1 != null) {
-                            Box(Modifier.weight(1f)) {
-                                BadgeCard(item1) { selectedAchievement = item1 }
-                            }
-                        }
-                        if (item2 != null) {
-                            Box(Modifier.weight(1f)) {
-                                BadgeCard(item2) { selectedAchievement = item2 }
-                            }
-                        } else {
-                            Spacer(Modifier.weight(1f))
-                        }
+        Label("${filtered.size} achievements · monthly results for ${month.format(DateTimeFormatter.ofPattern("MMM yyyy"))}")
+        if(filtered.isEmpty()) {
+            Text("No achievements match these filters.")
+            SmallAction("Show all achievements") { category=AchievementCategory.ALL.name;status=AchievementFilter.ALL.name }
+        }
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val columns=if(maxWidth < 340.dp || androidx.compose.ui.platform.LocalDensity.current.fontScale >= 1.3f) 1 else 2
+            Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {
+                filtered.chunked(columns).forEach { row ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+                        row.forEach { item -> Box(Modifier.weight(1f)) { BadgeCard(item) { selectedId=item.instanceId } } }
+                        if(row.size < columns) Spacer(Modifier.weight(1f))
                     }
                 }
             }
         }
-
-        Spacer(Modifier.height(16.dp))
     }
-
-    // Detail Bottom Sheet
-    selectedAchievement?.let { item ->
-        ModalBottomSheet(
-            onDismissRequest = { selectedAchievement = null },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-            containerColor = MaterialTheme.colorScheme.background
-        ) {
-            AchievementDetailSheet(item) { selectedAchievement = null }
+    if(showCategories) ModalBottomSheet(onDismissRequest={showCategories=false}, sheetState=rememberModalBottomSheetState(skipPartiallyExpanded=true)) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp)) {
+            Text("Choose category", style=MaterialTheme.typography.titleLarge)
+            AchievementCategory.entries.forEach { cat ->
+                Row(Modifier.fillMaxWidth().heightIn(min=48.dp).selectable(selectedCategory==cat, onClick={category=cat.name;showCategories=false}, role=Role.RadioButton), verticalAlignment=Alignment.CenterVertically) {
+                    RadioButton(selectedCategory==cat,onClick=null)
+                    Text("${cat.label} (${AchievementCollection.filter(collection,selectedStatus,cat).size})",Modifier.padding(start=12.dp))
+                }
+            }
+            Spacer(Modifier.height(24.dp))
         }
     }
+    selected?.let { item -> ModalBottomSheet(onDismissRequest={selectedId=null}, sheetState=rememberModalBottomSheetState(skipPartiallyExpanded=true), containerColor=MaterialTheme.colorScheme.background) {
+        AchievementDetailSheet(item,allAchievements) { selectedId=null }
+    } }
 }
 
-@Composable private fun BadgeCard(
-    item: UserAchievement,
-    onClick: () -> Unit
-) {
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(PulseTokens.corner))
-            .background(MaterialTheme.colorScheme.surface)
-            .border(
-                1.dp,
-                if (item.unlocked) Red.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outline,
-                RoundedCornerShape(PulseTokens.corner)
-            )
-            .clickable(onClick = onClick)
-            .padding(14.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            PulseBadgeArt(item, Modifier.size(72.dp))
-            Text(
-                item.definition.name,
-                style = MaterialTheme.typography.titleMedium,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                item.definition.category.label.uppercase(),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            // Progress or Unlocked indicator
-            if (item.unlocked) {
-                Box(
-                    Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(Red.copy(alpha = 0.15f))
-                        .padding(horizontal = 8.dp, vertical = 2.dp)
-                ) {
-                    Text("UNLOCKED", fontSize = 10.sp, fontWeight = FontWeight.Medium, color = Red)
-                }
-            } else {
-                Text(
-                    item.progressText,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-    }
-}
-
-/**
- * Geometric, minimal Nothing OS-inspired achievement artwork.
- */
-@Composable fun PulseBadgeArt(
-    achievement: UserAchievement,
-    modifier: Modifier = Modifier,
-    compact: Boolean = false
-) {
-    val unlocked = achievement.unlocked
-    val iconType = achievement.definition.iconType
-    val outlineColor = if (unlocked) Red else MaterialTheme.colorScheme.outline
-    val fgColor = if (unlocked) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline.copy(alpha = 0.7f)
-
-    // Subtle breathing pulse for unlocked badges
-    val transition = rememberInfiniteTransition(label = "badgePulse")
-    val scaleAnim by transition.animateFloat(
-        initialValue = 1f,
-        targetValue = if (unlocked && !compact) 1.03f else 1f,
-        animationSpec = infiniteRepeatable(tween(2400, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "scale"
-    )
-
-    Canvas(
-        modifier
-            .scale(scaleAnim)
-            .semantics { contentDescription = "${achievement.definition.name} badge: ${if (unlocked) "Unlocked" else "Locked"}" }
-    ) {
-        val w = size.width
-        val h = size.height
-        val s = min(w, h)
-        val strokeWidth = (s * 0.045f).coerceAtLeast(1.2f)
-
-        // 1. Geometric Outer Frame (Octagonal / Chamfered box)
-        val inset = strokeWidth / 2f
-        val cut = s * 0.18f
-        val framePath = Path().apply {
-            moveTo(cut + inset, inset)
-            lineTo(s - cut - inset, inset)
-            lineTo(s - inset, cut + inset)
-            lineTo(s - inset, s - cut - inset)
-            lineTo(s - cut - inset, s - inset)
-            lineTo(cut + inset, s - inset)
-            lineTo(inset, s - cut - inset)
-            lineTo(inset, cut + inset)
-            close()
-        }
-        drawPath(
-            framePath,
-            color = outlineColor,
-            style = Stroke(strokeWidth, pathEffect = if (!unlocked) PathEffect.dashPathEffect(floatArrayOf(4f, 4f)) else null)
-        )
-
-        // 2. Corner Dot Accents (Nothing OS signature)
-        if (unlocked) {
-            val dotR = s * 0.028f
-            drawCircle(Red, dotR, Offset(s * 0.12f, s * 0.12f))
-            drawCircle(Red, dotR, Offset(s * 0.88f, s * 0.12f))
-            drawCircle(Red, dotR, Offset(s * 0.88f, s * 0.88f))
-            drawCircle(Red, dotR, Offset(s * 0.12f, s * 0.88f))
-        }
-
-        // 3. Central Geometric Symbol
-        val cx = s / 2f
-        val cy = s / 2f
-        val glyphStroke = Stroke((s * 0.05f).coerceAtLeast(1.5f), cap = StrokeCap.Round, join = StrokeJoin.Round)
-
-        when (iconType) {
-            "footsteps" -> {
-                // Dual stepping footprints in dot linework
-                repeat(4) { i ->
-                    drawCircle(fgColor, s * 0.035f, Offset(cx - s * 0.14f, cy - s * 0.18f + i * s * 0.11f))
-                    drawCircle(fgColor, s * 0.035f, Offset(cx + s * 0.14f, cy - s * 0.12f + i * s * 0.11f))
-                }
-            }
-            "5k", "10k" -> {
-                // Minimalist numeric target
-                drawCircle(fgColor, s * 0.26f, style = glyphStroke)
-                drawCircle(if (unlocked) Red else fgColor, s * 0.07f, Offset(cx, cy))
-            }
-            "target" -> {
-                drawCircle(fgColor, s * 0.25f, style = glyphStroke)
-                drawCircle(fgColor, s * 0.12f, style = glyphStroke)
-                drawLine(fgColor, Offset(cx - s * 0.32f, cy), Offset(cx + s * 0.32f, cy), strokeWidth = strokeWidth)
-                drawLine(fgColor, Offset(cx, cy - s * 0.32f), Offset(cx, cy + s * 0.32f), strokeWidth = strokeWidth)
-            }
-            "streak" -> {
-                // Ascending stepped ladder
-                repeat(4) { i ->
-                    val y = cy + s * 0.18f - i * s * 0.12f
-                    drawLine(fgColor, Offset(cx - s * 0.18f + i * s * 0.09f, y), Offset(cx + s * 0.18f, y), strokeWidth = strokeWidth * 1.5f, cap = StrokeCap.Round)
-                }
-            }
-            "moon", "moon_stars" -> {
-                // Crescent moon
-                val moonPath = Path().apply {
-                    moveTo(cx, cy - s * 0.24f)
-                    cubicTo(cx + s * 0.22f, cy - s * 0.24f, cx + s * 0.22f, cy + s * 0.24f, cx, cy + s * 0.24f)
-                    cubicTo(cx + s * 0.08f, cy + s * 0.14f, cx + s * 0.08f, cy - s * 0.14f, cx, cy - s * 0.24f)
-                    close()
-                }
-                drawPath(moonPath, fgColor, style = glyphStroke)
-                if (iconType == "moon_stars") {
-                    drawCircle(if (unlocked) Red else fgColor, s * 0.04f, Offset(cx - s * 0.18f, cy - s * 0.12f))
-                }
-            }
-            "dumbbell" -> {
-                // Barbell
-                drawLine(fgColor, Offset(cx - s * 0.25f, cy), Offset(cx + s * 0.25f, cy), strokeWidth = strokeWidth * 1.5f)
-                drawLine(fgColor, Offset(cx - s * 0.2f, cy - s * 0.18f), Offset(cx - s * 0.2f, cy + s * 0.18f), strokeWidth = strokeWidth * 2f, cap = StrokeCap.Round)
-                drawLine(fgColor, Offset(cx + s * 0.2f, cy - s * 0.18f), Offset(cx + s * 0.2f, cy + s * 0.18f), strokeWidth = strokeWidth * 2f, cap = StrokeCap.Round)
-            }
-            "sunrise" -> {
-                // Horizon line + rising sun
-                drawLine(fgColor, Offset(cx - s * 0.28f, cy + s * 0.1f), Offset(cx + s * 0.28f, cy + s * 0.1f), strokeWidth = strokeWidth)
-                drawArc(fgColor, 180f, 180f, false, topLeft = Offset(cx - s * 0.18f, cy - s * 0.08f), size = Size(s * 0.36f, s * 0.36f), style = glyphStroke)
-                repeat(5) { i ->
-                    val a = PI + (i + 1) * PI / 6
-                    val r1 = s * 0.22f
-                    val r2 = s * 0.28f
-                    drawLine(fgColor, Offset(cx + cos(a).toFloat() * r1, cy + s * 0.1f + sin(a).toFloat() * r1), Offset(cx + cos(a).toFloat() * r2, cy + s * 0.1f + sin(a).toFloat() * r2), strokeWidth = strokeWidth, cap = StrokeCap.Round)
-                }
-            }
-            "sun" -> {
-                drawCircle(fgColor, s * 0.15f, style = glyphStroke)
-                repeat(8) { i ->
-                    val a = i * PI / 4
-                    drawLine(fgColor, Offset(cx + cos(a).toFloat() * s * 0.2f, cy + sin(a).toFloat() * s * 0.2f), Offset(cx + cos(a).toFloat() * s * 0.28f, cy + sin(a).toFloat() * s * 0.28f), strokeWidth = strokeWidth, cap = StrokeCap.Round)
-                }
-            }
-            "evening" -> {
-                // Horizon line + evening star
-                drawLine(fgColor, Offset(cx - s * 0.26f, cy + s * 0.14f), Offset(cx + s * 0.26f, cy + s * 0.14f), strokeWidth = strokeWidth)
-                // 4-point star
-                drawLine(if (unlocked) Red else fgColor, Offset(cx, cy - s * 0.2f), Offset(cx, cy + s * 0.04f), strokeWidth = strokeWidth * 1.5f, cap = StrokeCap.Round)
-                drawLine(if (unlocked) Red else fgColor, Offset(cx - s * 0.12f, cy - s * 0.08f), Offset(cx + s * 0.12f, cy - s * 0.08f), strokeWidth = strokeWidth * 1.5f, cap = StrokeCap.Round)
-            }
-            "clock" -> {
-                drawCircle(fgColor, s * 0.25f, style = glyphStroke)
-                drawLine(fgColor, Offset(cx, cy), Offset(cx, cy - s * 0.15f), strokeWidth = strokeWidth, cap = StrokeCap.Round)
-                drawLine(if (unlocked) Red else fgColor, Offset(cx, cy), Offset(cx + s * 0.12f, cy), strokeWidth = strokeWidth, cap = StrokeCap.Round)
-            }
-            "route" -> {
-                // Connected path
-                drawCircle(fgColor, s * 0.06f, Offset(cx - s * 0.18f, cy + s * 0.15f))
-                drawCircle(if (unlocked) Red else fgColor, s * 0.06f, Offset(cx + s * 0.18f, cy - s * 0.15f))
-                drawLine(fgColor, Offset(cx - s * 0.18f, cy + s * 0.15f), Offset(cx, cy), strokeWidth = strokeWidth)
-                drawLine(fgColor, Offset(cx, cy), Offset(cx + s * 0.18f, cy - s * 0.15f), strokeWidth = strokeWidth)
-            }
-            "crown" -> {
-                val crownPath = Path().apply {
-                    moveTo(cx - s * 0.24f, cy + s * 0.14f)
-                    lineTo(cx + s * 0.24f, cy + s * 0.14f)
-                    lineTo(cx + s * 0.26f, cy - s * 0.14f)
-                    lineTo(cx + s * 0.12f, cy - s * 0.02f)
-                    lineTo(cx, cy - s * 0.18f)
-                    lineTo(cx - s * 0.12f, cy - s * 0.02f)
-                    lineTo(cx - s * 0.26f, cy - s * 0.14f)
-                    close()
-                }
-                drawPath(crownPath, fgColor, style = glyphStroke)
-            }
-            "flame" -> {
-                val flamePath = Path().apply {
-                    moveTo(cx, cy - s * 0.25f)
-                    cubicTo(cx + s * 0.22f, cy - s * 0.1f, cx + s * 0.25f, cy + s * 0.18f, cx, cy + s * 0.25f)
-                    cubicTo(cx - s * 0.25f, cy + s * 0.18f, cx - s * 0.22f, cy - s * 0.1f, cx, cy - s * 0.25f)
-                    close()
-                }
-                drawPath(flamePath, fgColor, style = glyphStroke)
-                drawCircle(if (unlocked) Red else fgColor, s * 0.05f, Offset(cx, cy + s * 0.08f))
-            }
-            else -> {
-                // Default Geometric Star / Spark
-                drawLine(fgColor, Offset(cx, cy - s * 0.24f), Offset(cx, cy + s * 0.24f), strokeWidth = strokeWidth * 1.5f, cap = StrokeCap.Round)
-                drawLine(fgColor, Offset(cx - s * 0.24f, cy), Offset(cx + s * 0.24f, cy), strokeWidth = strokeWidth * 1.5f, cap = StrokeCap.Round)
-                drawCircle(if (unlocked) Red else fgColor, s * 0.06f, Offset(cx, cy))
-            }
-        }
+@Composable private fun BadgeCard(item: UserAchievement, onClick: () -> Unit) {
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick=onClick).padding(12.dp), horizontalAlignment=Alignment.CenterHorizontally, verticalArrangement=Arrangement.spacedBy(8.dp)) {
+        PulseBadgeArt(item,Modifier.size(80.dp))
+        Text(item.definition.name,style=MaterialTheme.typography.titleMedium,textAlign=TextAlign.Center)
+        Label(item.period?.format(DateTimeFormatter.ofPattern("MMM yyyy")) ?: item.definition.category.label)
+        Text(if(item.unlocked) "Unlocked" else item.progressText,style=MaterialTheme.typography.bodySmall,textAlign=TextAlign.Center,color=if(item.unlocked) Red else MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
 @Composable private fun AchievementDetailSheet(
     item: UserAchievement,
+    history: List<UserAchievement>,
     dismiss: () -> Unit
 ) {
     Column(
         Modifier
             .fillMaxWidth()
-            .padding(24.dp),
+            .verticalScroll(rememberScrollState()).padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         PulseBadgeArt(item, Modifier.size(120.dp))
+        item.period?.let { Text(it.format(DateTimeFormatter.ofPattern("MMMM yyyy")), style=MaterialTheme.typography.titleMedium) }
 
         Text(
             item.definition.name,
@@ -469,7 +170,7 @@ import kotlin.math.*
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Label("PROGRESS")
+                Label("Best confirmed progress")
                 Text(
                     item.progressText,
                     style = MaterialTheme.typography.bodyMedium,
@@ -490,12 +191,18 @@ import kotlin.math.*
             if (item.unlocked) {
                 item.unlockedDate?.let { date ->
                     Label("Unlocked on ${date.format(DateTimeFormatter.ofPattern("d MMMM yyyy"))}")
-                } ?: Label("Unlocked from recorded health data")
+                } ?: Label("Unlocked from recorded health data · exact date unavailable")
             } else {
-                Label("In progress · unlocks automatically with recorded records")
+                Label(if(item.period != null && item.period < YearMonth.now()) "Not unlocked in this month" else "Progress from recorded data")
             }
+            Text("Earned achievements stay unlocked when goals change or older records are no longer available. Progress reflects the best result confirmed on this device.", style=MaterialTheme.typography.bodySmall, color=MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
+        val earned=MonthlyBadges.history(item,history)
+        Label("${if(item.repeat==AchievementRepeat.MONTHLY) "Repeatable monthly" else "One-time achievement"} · Unlocked ${earned.size} times")
+        earned.forEach { award ->
+            Text(listOfNotNull(award.period?.format(DateTimeFormatter.ofPattern("MMMM yyyy")),award.unlockedDate?.format(DateTimeFormatter.ofPattern("d MMM yyyy"))).joinToString(" · "),style=MaterialTheme.typography.bodySmall)
+        }
         PulseButton("Close", Modifier.fillMaxWidth(), onClick = dismiss)
         Spacer(Modifier.height(8.dp))
     }
@@ -584,10 +291,10 @@ import kotlin.math.*
 
 fun drawMedal(c: android.graphics.Canvas, m: Medal, compact: Boolean = false) {
     val tone = when (m.tier) {
-        Tier.BRONZE -> 0xFFC89C79.toInt()
+        Tier.BRONZE -> 0xFF999EA3.toInt()
         Tier.SILVER -> 0xFFC5C9CD.toInt()
-        Tier.GOLD -> 0xFFD7C18A.toInt()
-        Tier.DIAMOND -> 0xFFD4E5E9.toInt()
+        Tier.GOLD -> 0xFFE0E2E4.toInt()
+        Tier.DIAMOND -> 0xFFF5F5F5.toInt()
         else -> 0xFF8F9397.toInt()
     }
     val p = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -639,8 +346,13 @@ fun drawMedal(c: android.graphics.Canvas, m: Medal, compact: Boolean = false) {
     }
 }
 
-@Composable fun MedalScreen(month: YearMonth, snapshot: HealthSnapshot, back: () -> Unit) {
-    val medal = remember(month, snapshot.days) { Achievements.calculate(month, snapshot.days, LocalDate.now()) }
+@Composable fun MedalScreen(month: YearMonth, snapshot: HealthSnapshot, history: List<UserAchievement> = emptyList(), back: () -> Unit) {
+    val items=MonthlyBadges.items(snapshot,history,month,LocalDate.now())
+    val medal = remember(month, snapshot.days,items) {
+        val raw=Achievements.calculate(month,snapshot.days,LocalDate.now())
+        val total=maxOf(raw.total ?: 0L,items.maxOfOrNull {it.progress.toLong()} ?: 0L)
+        raw.copy(total=total.takeIf {it>0 || raw.total!=null},tier=Achievements.tier(total))
+    }
     val context = LocalContext.current
     val demo = LocalDemo.current
     val days = (1..month.lengthOfMonth()).map { d -> snapshot.days.firstOrNull { it.date == month.atDay(d)}?.value(Metric.STEPS) }
@@ -655,7 +367,9 @@ fun drawMedal(c: android.graphics.Canvas, m: Medal, compact: Boolean = false) {
             Label(month.format(DateTimeFormatter.ofPattern("MMMM yyyy")).uppercase())
         }
         if (demo) Label("DEMO COLLECTION / SAMPLE DATA", color = Red)
-        MedalArt(medal, Modifier.fillMaxWidth(.84f).aspectRatio(1f))
+        val main=items.lastOrNull {it.unlocked} ?: items.first()
+        SeasonalBadge(main, Modifier.fillMaxWidth(.84f).aspectRatio(1f))
+        Label("Unlocked ${MonthlyBadges.history(main,history).size} times")
         Text(medal.tier?.name ?: "NO MEDAL", fontSize = 28.sp, fontWeight = FontWeight.Normal)
         Label("MONTHLY STEP BADGE · ${medal.state}", color = if (medal.state == "PROVISIONAL") Red else MaterialTheme.colorScheme.onSurfaceVariant)
         Text("${number(medal.total?.toDouble())} TOTAL STEPS", style = MaterialTheme.typography.titleLarge)

@@ -103,12 +103,12 @@ fun valueText(value: Double?, metric: Metric, imperial: Boolean=false): String {
 @Composable fun IconAction(name: String, description: String, enabled: Boolean=true, onClick:()->Unit) {
     IconButton(onClick,enabled=enabled,modifier=Modifier.semantics { contentDescription=description }) { Glyph(name) }
 }
-@Composable fun DotWordmark(modifier: Modifier=Modifier) {
+@Composable fun DotWordmark(modifier: Modifier=Modifier,pulseVisible: Boolean=true) {
     val fg=MaterialTheme.colorScheme.onBackground
     Canvas(modifier.size(120.dp,28.dp).semantics { contentDescription="PULSE" }) {
         val glyphs=listOf(listOf("11110","10001","10001","11110","10000","10000","10000"),listOf("10001","10001","10001","10001","10001","10001","01110"),listOf("10000","10000","10000","10000","10000","10000","11111"),listOf("01111","10000","10000","01110","00001","00001","11110"),listOf("11111","10000","10000","11110","10000","10000","11111"))
         val cell=min(size.width/30,size.height/7)
-        glyphs.forEachIndexed { g,rows -> rows.forEachIndexed { r,row -> row.forEachIndexed { c,ch -> if(ch=='1') drawCircle(if(r==3) Red else fg,cell*.34f,Offset((g*6+c+.5f)*cell,(r+.5f)*cell)) } } }
+        glyphs.forEachIndexed { g,rows -> rows.forEachIndexed { r,row -> row.forEachIndexed { c,ch -> if(ch=='1') drawCircle(if(r==3 && pulseVisible) Red else fg,cell*.34f,Offset((g*6+c+.5f)*cell,(r+.5f)*cell)) } } }
     }
 }
 @Composable fun DotRing(progress: Double, modifier: Modifier=Modifier) {

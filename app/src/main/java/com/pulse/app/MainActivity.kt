@@ -1,5 +1,7 @@
 package com.pulse.app
 
+import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
@@ -31,6 +33,7 @@ class MainActivity : ComponentActivity() {
             val vm: PulseViewModel=viewModel()
             val p by vm.preferences.collectAsStateWithLifecycle()
             val ready by vm.ready.collectAsStateWithLifecycle()
+            val setupSnapshot by vm.snapshot.collectAsStateWithLifecycle()
             val systemMotion=Settings.Global.getFloat(contentResolver,Settings.Global.ANIMATOR_DURATION_SCALE,1f)>0
             val systemDark=androidx.compose.foundation.isSystemInDarkTheme()
             SideEffect {
@@ -42,7 +45,7 @@ class MainActivity : ComponentActivity() {
                     val permissionLauncher=rememberLauncherForActivityResult(PermissionController.createRequestPermissionResultContract()) { vm.refresh() }
                     val connect: ()->Unit = {
                         if(vm.healthConnect.availability()==androidx.health.connect.client.HealthConnectClient.SDK_AVAILABLE) {
-                            vm.preferences { it.copy(mode=DataMode.HEALTH_CONNECT) }; permissionLauncher.launch(HealthConnectRepository.permissions)
+                            vm.preferences { it.copy(mode=DataMode.HEALTH_CONNECT) }; permissionLauncher.launch(vm.healthConnect.requestedPermissions())
                         } else {
                             vm.preferences { it.copy(mode=DataMode.HEALTH_CONNECT) }; vm.refresh(DataMode.HEALTH_CONNECT)
                         }
@@ -50,7 +53,7 @@ class MainActivity : ComponentActivity() {
                     val privacyRequested=intent?.action in setOf("androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE","android.intent.action.VIEW_PERMISSION_USAGE")
                     if(privacyRequested) PrivacyRationale { finish() }
                     else if(!ready) Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center) { DotWordmark() }
-                    else if(!p.onboarded) Onboarding(p,vm::preferences,connect) { vm.preferences { it.copy(onboarded=true) } }
+                    else if(!p.onboarded) Onboarding(p,setupSnapshot,vm::preferences,connect) { vm.preferences { it.copy(onboarded=true) } }
                     else PulseApp(vm,p,connect)
                 }
             }
@@ -62,14 +65,17 @@ class MainActivity : ComponentActivity() {
     val backstack by nav.currentBackStackEntryAsState()
     val current=backstack?.destination?.route ?: "home"
     val editing by vm.editing.collectAsStateWithLifecycle()
+    val achievements by vm.achievements.collectAsStateWithLifecycle()
     val snapshotRaw by vm.snapshot.collectAsStateWithLifecycle()
     val snapshot=if(snapshotRaw.mode==p.mode) snapshotRaw else HealthSnapshot(loading=true,mode=p.mode)
     val owner=androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(owner,p.mode) {
-        val observer=androidx.lifecycle.LifecycleEventObserver {_,event->if(event==androidx.lifecycle.Lifecycle.Event.ON_RESUME && p.mode==DataMode.HEALTH_CONNECT)vm.refresh(p.mode)}
+        val observer=androidx.lifecycle.LifecycleEventObserver {_,event->if(event==androidx.lifecycle.Lifecycle.Event.ON_RESUME && p.mode!=DataMode.DEMO)vm.refreshIfNeeded()}
         owner.lifecycle.addObserver(observer)
         onDispose {owner.lifecycle.removeObserver(observer)}
     }
+    LaunchedEffect(current) { if(current=="home") vm.refreshIfNeeded() }
+    val motion=LocalAnimations.current
     val message by vm.message.collectAsStateWithLifecycle()
     val snackbar=remember { SnackbarHostState() }
     LaunchedEffect(message) { message?.let { snackbar.showSnackbar(it); vm.clearMessage() } }
@@ -80,7 +86,11 @@ class MainActivity : ComponentActivity() {
         }
     }) { padding ->
         Box(Modifier.fillMaxSize().padding(padding),contentAlignment=Alignment.TopCenter) {
-            NavHost(nav,startDestination="home",modifier=Modifier.widthIn(max=680.dp).fillMaxSize()) {
+            NavHost(nav,startDestination="home",modifier=Modifier.widthIn(max=680.dp).fillMaxSize(),
+                enterTransition={fadeIn(tween(if(motion) 180 else 0))+slideInHorizontally(tween(if(motion) 180 else 0)){it/24}},
+                exitTransition={fadeOut(tween(if(motion) 140 else 0))},
+                popEnterTransition={fadeIn(tween(if(motion) 180 else 0))},
+                popExitTransition={fadeOut(tween(if(motion) 140 else 0))}) {
                 composable("home") { HomeScreen(
                     vm,
                     p,
@@ -90,7 +100,7 @@ class MainActivity : ComponentActivity() {
                     {nav.navigate("day/$it")}
                 ) }
                 composable("history") { HistoryScreen(p,snapshot) {nav.navigate("day/$it")} }
-                composable("achievements") { AchievementsScreen(snapshot) {nav.navigate("medal/$it")} }
+                composable("achievements") { AchievementsScreen(snapshot,achievements,{nav.navigate("year/$it")}) {nav.navigate("medal/$it")} }
                 composable("settings") { SettingsScreen(vm,p,snapshot,connect,{nav.popBackStack()},{nav.popBackStack(); vm.edit(true)}) }
                 composable("day/{date}") { entry ->
                     val date = java.time.LocalDate.parse(entry.arguments?.getString("date") ?: java.time.LocalDate.now().toString())
@@ -101,7 +111,8 @@ class MainActivity : ComponentActivity() {
                     val date = java.time.LocalDate.parse(entry.arguments?.getString("date") ?: java.time.LocalDate.now().toString())
                     MetricDetailScreen(metric, date, p, snapshot) { nav.popBackStack() }
                 }
-                composable("medal/{month}") { entry -> MedalScreen(java.time.YearMonth.parse(entry.arguments?.getString("month")),snapshot) {nav.popBackStack()} }
+                composable("year/{year}") { entry -> MonthlyYearScreen(entry.arguments?.getString("year")?.toIntOrNull() ?: java.time.Year.now().value,snapshot,achievements,{nav.popBackStack()}) {nav.navigate("medal/$it")} }
+                composable("medal/{month}") { entry -> MedalScreen(java.time.YearMonth.parse(entry.arguments?.getString("month")),snapshot,achievements) {nav.popBackStack()} }
             }
         }
     }

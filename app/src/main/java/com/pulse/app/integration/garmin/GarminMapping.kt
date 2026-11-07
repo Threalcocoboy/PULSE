@@ -6,6 +6,18 @@ import java.time.*
 
 /** Maps only fields published by Garmin's Personal API OpenAPI document (checked 2026-11-05). */
 object GarminMapping {
+    /** A 90-day summary refresh must not erase detail outside the shorter detail endpoints' windows. */
+    fun preserveOutsideDetailWindow(fresh: DayData, old: DayData?, recent: LocalDate, today: LocalDate): DayData {
+        if(old==null || old.date!=fresh.date) return fresh
+        val metrics=buildSet {
+            if(fresh.date<recent) addAll(setOf(Metric.SLEEP,Metric.SLEEP_STAGES,Metric.HRV,Metric.ACTIVITIES))
+            if(fresh.date<today) add(Metric.HEART)
+        }
+        val retained=metrics.mapNotNull { metric -> old.readings[metric]?.takeIf { it.value!=null }?.copy(state=DataState.STALE)?.let { metric to it } }.toMap()
+        return fresh.copy(readings=fresh.readings+retained,
+            sleepStages=if(fresh.date<recent) old.sleepStages else fresh.sleepStages,
+            activities=if(fresh.date<recent) old.activities else fresh.activities)
+    }
     val supported=setOf(Metric.STEPS,Metric.DISTANCE,Metric.RESTING_HEART,Metric.HEART,Metric.SLEEP,Metric.SLEEP_STAGES,Metric.STRESS,Metric.BATTERY,Metric.HRV,Metric.ACTIVE,Metric.CALORIES,Metric.ACTIVITIES)
     fun number(o: JSONObject?,key: String): Double?=(o?.opt(key) as? Number)?.toDouble()?.takeIf {it.isFinite() && it>=0}
     fun objects(a: JSONArray)= (0 until a.length()).mapNotNull {a.optJSONObject(it)}

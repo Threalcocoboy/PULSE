@@ -17,6 +17,8 @@ import com.pulse.app.core.*
 import java.time.LocalDate
 import kotlin.math.*
 
+val LocalWidgetEditing=staticCompositionLocalOf { false }
+
 @Composable internal fun MetricWidget(
     w: Widget,
     p: Preferences,
@@ -24,6 +26,7 @@ import kotlin.math.*
     days: List<DayData>,
     loading: Boolean
 ) {
+    if(w.metric == Metric.GOAL) { GoalsWidget(w,p,days); return }
     val value = when (w.metric) {
         Metric.WEEKLY -> HistoryMath.aggregate(
             days.filter { it.date in LocalDate.now().minusDays(6)..LocalDate.now() },
@@ -233,7 +236,7 @@ import kotlin.math.*
     val isMini = w.width == 1
     val isLarge = w.width >= 4
 
-    BoxWithConstraints(
+    Box(
         Modifier
             .fillMaxSize()
             .clip(RoundedCornerShape(PulseTokens.corner))
@@ -614,7 +617,7 @@ import kotlin.math.*
     loading: Boolean
 ) {
     val isDeep = w.height >= 2
-    BoxWithConstraints(
+    Box(
         Modifier
             .fillMaxSize()
             .clip(RoundedCornerShape(PulseTokens.corner))
@@ -724,6 +727,27 @@ import kotlin.math.*
                     } else {
                         Box(Modifier.size(6.dp).background(Red, CircleShape))
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable private fun GoalsWidget(w: Widget,p: Preferences,days: List<DayData>) {
+    val goals=p.enabledGoals.intersect(Goals.available(p.mode)).toList()
+    BoxWithConstraints(Modifier.fillMaxSize().clip(w.shape.outline()).background(MaterialTheme.colorScheme.surface),contentAlignment=Alignment.Center) {
+        val small=maxHeight<100.dp || maxWidth<150.dp
+        val inset=if(w.shape==WidgetShape.CIRCLE) maxWidth*.15f else 10.dp
+        val goalWidth=((maxWidth-inset*2-12.dp*(goals.size-1))/goals.size.coerceAtLeast(1)).coerceIn(48.dp,if(small) 68.dp else 88.dp)
+        Row(Modifier.fillMaxWidth().padding(horizontal=inset).horizontalScroll(rememberScrollState(),enabled=!LocalWidgetEditing.current),horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+            goals.forEach { metric ->
+                val value=Goals.value(metric,days,LocalDate.now())
+                val target=Goals.target(metric,p)
+                Column(Modifier.width(goalWidth),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(3.dp)) {
+                    if(!small) Box(contentAlignment=Alignment.Center) { DotRing((value ?: 0.0)/target,Modifier.size(48.dp));Text(if(value==null) "—" else "${(value/target*100).toInt()}%",style=MaterialTheme.typography.labelSmall) }
+                    Text(metric.label,style=MaterialTheme.typography.labelSmall,maxLines=1)
+                    Text("${number(value)} / ${number(target)}",style=MaterialTheme.typography.labelSmall,maxLines=1)
+                    if(small) LinearProgressIndicator(progress={((value ?: 0.0)/target).toFloat().coerceIn(0f,1f)},modifier=Modifier.fillMaxWidth(),color=Red)
                 }
             }
         }

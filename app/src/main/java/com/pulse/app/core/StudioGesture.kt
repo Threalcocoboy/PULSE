@@ -4,8 +4,13 @@ import kotlin.math.abs
 
 enum class StudioGesture { MOVE, RESIZE }
 object StudioGestureRules {
-    fun resizeHit(editing: Boolean, selected: Boolean, x: Float, y: Float, width: Float, height: Float, target: Float): Boolean =
-        editing && selected && x in (width-target)..width && y in (height-target)..height
+    fun handleInset(shape: WidgetShape, diameter: Float, target: Float): Float =
+        if (shape == WidgetShape.CIRCLE) (diameter * .146447f).coerceIn(0f, (diameter-target).coerceAtLeast(0f)) else 0f
+
+    fun resizeHit(editing: Boolean, selected: Boolean, x: Float, y: Float, width: Float, height: Float, target: Float, shape: WidgetShape = WidgetShape.RECTANGLE): Boolean {
+        val inset = handleInset(shape, width, target)
+        return editing && selected && x in (width-target-inset)..(width-inset) && y in (height-target-inset)..(height-inset)
+    }
 
     /** A new size must be meaningfully closer than the current size, preventing boundary flicker. */
     fun resize(widget: Widget, columns: Float, rows: Float, previous: Footprint): Footprint {
@@ -24,7 +29,11 @@ object StudioGestureRules {
         val baseH = widget.height * stepY - gapPx
         val rawCols = widget.width + deltaX / stepX
         val rawRows = widget.height + deltaY / stepY
-        val target = resize(widget, rawCols, rawRows, previous)
+        val dominant = if (abs(deltaX) > abs(deltaY)) deltaX else deltaY
+        // Square geometry follows physical pixels, even when accessibility makes grid rows taller.
+        val target = if (widget.shape in setOf(WidgetShape.CIRCLE, WidgetShape.SQUARE))
+            resize(widget, widget.width + dominant / stepX, widget.height + dominant / stepX, previous)
+        else resize(widget, rawCols, rawRows, previous)
 
         val (liveW, liveH) = when (widget.shape) {
             WidgetShape.CIRCLE -> {

@@ -1,15 +1,15 @@
-# Known issues — PULSE 0.2.0
+# Known issues — PULSE 0.3.0
 
-- Five reference images were not available locally. The redesign follows the written direction and typography roles; screenshot fidelity cannot be claimed. System fonts replace unlicensed Nothing fonts.
-- Real Garmin data was verified in the emulator; physical-phone verification remains. Health Connect's permission/empty-source path works; populated physical Health Connect remains untested.
-- Real monthly medals remain incomplete without a source completeness guarantee. Fixed thresholds are unchanged; collected counts exclude incomplete/provisional results.
-- Garmin summary window: 90 requested days. Sleep/HRV/activities: 31. Heart samples: today only. Historical heart gaps are not filled from resting values. Data beyond the sync horizon remains cached; comprehensive source-deletion reconciliation is not implemented.
-- Garmin Distance means documented step distance, not all exercise distance. Active minutes are moderate + vigorous, not weighted intensity-goal points. Stages are duration totals, not chronological segments.
-- Availability depends on the account/device. Negative sentinels remain missing. Optional endpoint failures retain previous values as stale/error; only unavailable endpoints become unsupported.
-- Full TalkBack/keyboard/tablet and device profiling remain. Large text may abbreviate the Achievements tab; Studio toolbar scrolls horizontally on narrow screens.
-- Reflow is deterministic first-fit and can move several widgets during expansion. Pinned layouts and named saved layouts are deferred. Tests cover primary gestures/edges, not every multitouch race.
-- Background sync, notifications/reminders, unlock animations, a full general-achievement ledger and external AI remain deferred.
-- Exports contain current data, active-timezone Health Connect cache and separate Garmin cache; other-timezone HC caches are omitted. Credentials are excluded. Deletion clears all tables, encrypted key, settings and cached exports.
-- Lint has 8 nonblocking dependency/KTX suggestions. One successful build produced a transient KSP shutdown NPE; no related application crash was observed.
+- Physical-phone, full TalkBack, keyboard, tablet, performance and multitouch stress verification remain. The emulator checks cover the documented gestures and a narrow screen with enlarged text.
+- Current monthly challenges use the four existing step thresholds. Reaching a threshold can be confirmed from recorded steps; final seasonal medals still require confirmed monthly coverage and remain incomplete for partial real imports.
+- There was no durable general-achievement ledger before 0.3.0. Awards missing from both retained records and existing caches cannot be reconstructed. New confirmed awards and best progress persist separately per source/period, including after goal changes. Exact unlock dates are shown only when known.
+- JSON export does not yet include the achievement ledger as a restorable backup, and no backup restore/import flow exists. Explicit local deletion includes all tables, the encrypted key, settings and cached exports.
+- Garmin summary window: 90 requested days. Sleep/HRV/activities: 31. Heart samples: today only. Previously cached detail outside a shorter fetch window is retained as stale. Comprehensive provider-deletion reconciliation remains unimplemented.
+- Garmin distance is step distance. Active minutes are moderate + vigorous, not weighted intensity-goal points. Sleep stages are duration totals, not a chronological timeline. Source availability depends on the account and device; missing values are not invented.
+- Real Garmin integration was verified in the earlier iteration; this audit preserves its protocol and tests without repeating a live-account import. Health Connect's available/empty-data path was checked, but populated physical Health Connect remains untested.
+- Grid reflow is deterministic first-fit and can move several widgets during expansion. Pinned positions and named layouts remain deferred. Saving display settings at an unchanged footprint preserves manual placement.
+- The smallest widget footprints may omit secondary content. Large-text collection layouts use one badge column and wrapping controls.
+- Notifications, scheduled background sync and external AI remain deferred. No Garmin OAuth or Daash work was added in this iteration.
+- Lint reports seven nonblocking dependency/KTX suggestions. Build, unit tests and lint have no failing checks in the final verification.
 
-This is a personal-use debug delivery. Store publishing, release signing and commercial Garmin integration are outside scope.
+The delivery is a personal-use debug APK. Release signing, store publishing and commercial Garmin integration are outside this iteration. See POST_AI_AUDIT_REPORT.md and verification/post-audit/ for evidence.

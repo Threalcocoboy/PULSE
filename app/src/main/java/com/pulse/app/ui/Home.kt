@@ -30,7 +30,7 @@ fun metricDescription(metric: Metric): String = when (metric) {
     Metric.ACTIVE -> "Moderate and vigorous intensity physical minutes"
     Metric.CALORIES -> "Total daily active and resting energy expenditure"
     Metric.ACTIVITIES -> "Recorded workout sessions and exercise logs"
-    Metric.GOAL -> "Percentage of today's target step goal completed"
+    Metric.GOAL -> "All your personal goals and their recorded progress"
     Metric.WEEKLY -> "Total steps accumulated over the last 7 days"
     Metric.TREND -> "Step volume trajectory compared to previous days"
 }
@@ -64,7 +64,8 @@ fun sizeDisplayName(shape: WidgetShape, footprint: Footprint): String = when (sh
     snapshot: HealthSnapshot = HealthSnapshot(),
     dismiss: () -> Unit,
     change: (Widget) -> Unit,
-    remove: () -> Unit
+    remove: () -> Unit,
+    isNew: Boolean = false
 ) {
     var draft by remember(w) { mutableStateOf(w) }
     var confirmDelete by rememberSaveable { mutableStateOf(false) }
@@ -73,7 +74,6 @@ fun sizeDisplayName(shape: WidgetShape, footprint: Footprint): String = when (sh
 
     ModalBottomSheet(
         onDismissRequest = {
-            change(draft)
             dismiss()
         },
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
@@ -101,7 +101,7 @@ fun sizeDisplayName(shape: WidgetShape, footprint: Footprint): String = when (sh
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("Edit widget", style = MaterialTheme.typography.titleLarge)
+                    Text(if(isNew) "Create widget" else "Edit widget", style = MaterialTheme.typography.titleLarge)
                     Text(
                         "${draft.metric.label} · ${metricDescription(draft.metric)}",
                         style = MaterialTheme.typography.bodySmall,
@@ -109,7 +109,6 @@ fun sizeDisplayName(shape: WidgetShape, footprint: Footprint): String = when (sh
                     )
                 }
                 IconAction("close", "Close editor", onClick = {
-                    change(draft)
                     dismiss()
                 })
             }
@@ -152,7 +151,7 @@ fun sizeDisplayName(shape: WidgetShape, footprint: Footprint): String = when (sh
                         2 -> 140.dp
                         else -> 190.dp
                     }
-                    Box(Modifier.size(previewWidth, previewHeight)) {
+                    Box(Modifier.size(previewWidth.coerceAtMost(190.dp), if (draft.shape in setOf(WidgetShape.CIRCLE, WidgetShape.SQUARE)) previewWidth.coerceAtMost(190.dp) else previewHeight)) {
                         MetricWidget(draft, p, currentDay, snapshot.days, false)
                     }
                 }
@@ -181,7 +180,6 @@ fun sizeDisplayName(shape: WidgetShape, footprint: Footprint): String = when (sh
                                 selected = selected,
                                 onClick = {
                                     draft = draft.copy(metric = m)
-                                    change(draft)
                                 },
                                 label = {
                                     Text(
@@ -230,7 +228,6 @@ fun sizeDisplayName(shape: WidgetShape, footprint: Footprint): String = when (sh
                                         abs(it.columns - draft.width) + abs(it.rows - draft.height)
                                     }
                                     draft = next.copy(width = bestSize.columns, height = bestSize.rows)
-                                    change(draft)
                                 }
                                 .padding(8.dp),
                             contentAlignment = Alignment.Center
@@ -265,7 +262,6 @@ fun sizeDisplayName(shape: WidgetShape, footprint: Footprint): String = when (sh
                             selected = selected,
                             onClick = {
                                 draft = draft.copy(width = footprint.columns, height = footprint.rows)
-                                change(draft)
                             },
                             label = { Text(sizeDisplayName(draft.shape, footprint)) },
                             colors = FilterChipDefaults.filterChipColors(
@@ -287,13 +283,11 @@ fun sizeDisplayName(shape: WidgetShape, footprint: Footprint): String = when (sh
                 Label("DISPLAY PREFERENCES")
                 SettingToggle("Detailed presentation", draft.detailed) {
                     draft = draft.copy(detailed = it)
-                    change(draft)
                 }
 
                 if (draft.metric in setOf(Metric.STEPS, Metric.SLEEP, Metric.GOAL, Metric.DISTANCE, Metric.ACTIVE)) {
                     SettingToggle("Show goal indicator", draft.showGoal) {
                         draft = draft.copy(showGoal = it)
-                        change(draft)
                     }
                 }
 
@@ -305,7 +299,6 @@ fun sizeDisplayName(shape: WidgetShape, footprint: Footprint): String = when (sh
                 if (canFitTrend) {
                     SettingToggle("Show recent trend sparkline", draft.showTrend) {
                         draft = draft.copy(showTrend = it)
-                        change(draft)
                     }
                 }
             }
@@ -333,11 +326,11 @@ fun sizeDisplayName(shape: WidgetShape, footprint: Footprint): String = when (sh
                         onClick = { confirmDelete = true },
                         colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant)
                     ) {
-                        Text("Remove widget")
+                        Text(if(isNew) "Cancel" else "Remove widget")
                     }
                 }
 
-                PulseButton("Done") {
+                PulseButton(if(isNew) "Preview placement" else "Save widget") {
                     change(draft)
                     dismiss()
                 }

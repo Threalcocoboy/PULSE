@@ -18,3 +18,5 @@ garmin.txt
 *.jks
 tools/garmin-docs/
 verification/refinement/*private*
+
+verification/post-audit/*.xml

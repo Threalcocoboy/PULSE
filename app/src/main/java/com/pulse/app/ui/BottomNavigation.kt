@@ -4,7 +4,9 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
+import androidx.compose.animation.core.*
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.*
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.style.TextAlign
@@ -32,6 +34,7 @@ import androidx.compose.ui.unit.sp
         ) {
             items.forEach { (route, label, icon) ->
                 val selected = current == route
+                val emphasis by animateFloatAsState(if(selected) 1.10f else 1f,tween(if(LocalAnimations.current) 180 else 0),label="Navigation emphasis")
                 val color = if (selected) Red else MaterialTheme.colorScheme.onSurfaceVariant
 
                 Box(
@@ -51,7 +54,7 @@ import androidx.compose.ui.unit.sp
                     ) {
                         Glyph(
                             name = icon,
-                            modifier = Modifier.size(PulseTokens.iconSize),
+                            modifier = Modifier.size(PulseTokens.iconSize).graphicsLayer {scaleX=emphasis;scaleY=emphasis;translationY=if(selected) -1.dp.toPx() else 0f},
                             color = color
                         )
                         Spacer(Modifier.height(4.dp))
