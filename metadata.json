@@ -1,0 +1,6 @@
+{
+  "name": "Pulse",
+  "description": "Personal health and fitness tracking dashboard with Garmin integration and Health Connect.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -85,29 +85,288 @@ import kotlinx.coroutines.launch
         Label("DOT INTENSITY = RECORDED ${metric.label.uppercase()} · TAP A DAY")
     }
 }
-@Composable fun DailyScreen(date: LocalDate,p: Preferences,snapshot: HealthSnapshot,back:()->Unit) {
-    val day=snapshot.days.firstOrNull {it.date==date}
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
-        Row(verticalAlignment=Alignment.CenterVertically){IconAction("back","Back",onClick=back);Label("DAILY ARCHIVE")}
-        SectionTitle(date.format(DateTimeFormatter.ofPattern("EEEE, d MMMM")),date.year.toString())
-        if(LocalDemo.current)Label("Demo data")
-        if(day?.sleepStages?.isNotEmpty()==true) {
-            Text("Sleep stages",style=MaterialTheme.typography.titleMedium)
-            SleepStageDots(day.sleepStages,Modifier.fillMaxWidth().height(38.dp))
-            day.sleepStages.forEach{(stage,hours)->Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text(stage,style=MaterialTheme.typography.bodyMedium);Label(valueText(hours,Metric.SLEEP))}}
+@Composable fun DailyScreen(
+    initialDate: LocalDate,
+    p: Preferences,
+    snapshot: HealthSnapshot,
+    back: () -> Unit,
+    openMetric: (Metric, LocalDate) -> Unit = { _, _ -> }
+) {
+    var currentDate by rememberSaveable { mutableStateOf(initialDate.toString()) }
+    val date = LocalDate.parse(currentDate)
+    val today = LocalDate.now()
+    val day = snapshot.days.firstOrNull { it.date == date }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(PulseTokens.screenPadding),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // Navigation Bar
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconAction("back", "Back", onClick = back)
+                Spacer(Modifier.width(8.dp))
+                Label("DAILY ARCHIVE")
+            }
+            if (date != today) {
+                SmallAction("Today") { currentDate = today.toString() }
+            }
         }
-        Metric.entries.filterNot {it in setOf(Metric.GOAL,Metric.WEEKLY,Metric.TREND,Metric.SLEEP_STAGES)}.forEach {m->PulseCard(Modifier.fillMaxWidth()) {
-            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text(m.label);Text(valueText(day?.value(m),m,p.imperial)+if(day?.value(m)!=null && m!=Metric.SLEEP) " ${if(m==Metric.DISTANCE && p.imperial)"mi"else m.unit}" else "",color=if(day?.value(m)!=null)MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)}
-            if(day?.value(m)==null) Label(if(m !in snapshot.available)"UNAVAILABLE FROM THIS SOURCE"else"NO RECORD FOR THIS DAY")
-        }}
-        if(day?.activities?.isNotEmpty()==true) {
-            Text("Recorded activities",style=MaterialTheme.typography.titleMedium)
-            day.activities.forEach{activity->Column(verticalArrangement=Arrangement.spacedBy(3.dp)){
-                Text(activity.name,style=MaterialTheme.typography.bodyMedium)
-                Label("${activity.localStart.takeLast(8)} local · ${activity.type.replace('_',' ')} · ${number(activity.minutes)} min")
-            }}
+
+        // Date Bar with Previous / Next Controls
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconAction("back", "Previous day") {
+                currentDate = date.minusDays(1).toString()
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    date.format(DateTimeFormatter.ofPattern("EEEE, d MMMM")),
+                    style = MaterialTheme.typography.titleLarge
+                )
+                Text(
+                    date.year.toString(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            IconAction("next", "Next day", enabled = date < today) {
+                currentDate = date.plusDays(1).coerceAtMost(today).toString()
+            }
         }
-        Text(if(day?.sleepStages?.isNotEmpty()==true)"Sleep stages are duration totals, not a reconstructed timeline."else"Daily summaries only. Exact health event times and sleep stages are unavailable.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+
+        if (LocalDemo.current) {
+            Label("●  DEMO DATA · NOT LIVE", color = Red)
+        }
+
+        // Summary Hero Card: Today's High-Level Vitals
+        PulseCard(Modifier.fillMaxWidth()) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    val stepsVal = day?.value(Metric.STEPS)
+                    val goal = p.stepGoal.toDouble()
+                    val pct = if (stepsVal != null) ((stepsVal / goal) * 100).toInt() else 0
+                    Label("DAILY SUMMARY")
+                    Text("${valueText(stepsVal, Metric.STEPS)} steps", fontSize = 26.sp, fontWeight = FontWeight.Normal)
+                    Text(
+                        if (stepsVal == null) "No steps logged" else "$pct% of ${number(goal)} goal",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                val sleepVal = day?.value(Metric.SLEEP)
+                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Label("SLEEP")
+                    Text(valueText(sleepVal, Metric.SLEEP), fontSize = 22.sp)
+                    Label(if (sleepVal == null) "No sleep" else "Rest duration")
+                }
+            }
+        }
+
+        // Section 1: Activity & Movement
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Label("ACTIVITY & MOVEMENT")
+            listOf(Metric.STEPS, Metric.DISTANCE, Metric.ACTIVE, Metric.CALORIES).forEach { m ->
+                val v = day?.value(m)
+                PulseCard(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { openMetric(m, date) }
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Box(Modifier.size(8.dp).background(if (v != null) Red else MaterialTheme.colorScheme.outline, CircleShape))
+                            Column {
+                                Text(m.label, style = MaterialTheme.typography.bodyMedium)
+                                if (v == null) {
+                                    Label(if (m !in snapshot.available) "Unavailable" else "No record")
+                                }
+                            }
+                        }
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            if (v != null) {
+                                Text(
+                                    "${valueText(v, m, p.imperial)} ${if (m == Metric.DISTANCE && p.imperial) "mi" else if (m != Metric.SLEEP) m.unit else ""}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                            Glyph("next", Modifier.size(12.dp), MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Section 2: Vitals & Heart
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Label("VITALS & HEART")
+            listOf(Metric.HEART, Metric.RESTING_HEART, Metric.HRV).forEach { m ->
+                val v = day?.value(m)
+                PulseCard(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { openMetric(m, date) }
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Box(Modifier.size(8.dp).background(if (v != null) Red else MaterialTheme.colorScheme.outline, CircleShape))
+                            Column {
+                                Text(m.label, style = MaterialTheme.typography.bodyMedium)
+                                if (v == null) {
+                                    Label(if (m !in snapshot.available) "Unavailable" else "No record")
+                                }
+                            }
+                        }
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            if (v != null) {
+                                Text(
+                                    "${valueText(v, m)} ${m.unit}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                            Glyph("next", Modifier.size(12.dp), MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Section 3: Recovery & Rest
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Label("RECOVERY & REST")
+            listOf(Metric.SLEEP, Metric.STRESS, Metric.BATTERY).forEach { m ->
+                val v = day?.value(m)
+                PulseCard(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { openMetric(m, date) }
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Box(Modifier.size(8.dp).background(if (v != null) Red else MaterialTheme.colorScheme.outline, CircleShape))
+                            Column {
+                                Text(m.label, style = MaterialTheme.typography.bodyMedium)
+                                if (v == null) {
+                                    Label(if (m !in snapshot.available) "Unavailable" else "No record")
+                                }
+                            }
+                        }
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            if (v != null) {
+                                Text(
+                                    valueText(v, m),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                            Glyph("next", Modifier.size(12.dp), MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Sleep stages breakdown if recorded
+        if (day?.sleepStages?.isNotEmpty() == true) {
+            PulseCard(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { openMetric(Metric.SLEEP, date) }
+            ) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Sleep stages breakdown", style = MaterialTheme.typography.titleMedium)
+                    Glyph("next", Modifier.size(12.dp), MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                SleepStageDots(day.sleepStages, Modifier.fillMaxWidth().height(28.dp))
+                day.sleepStages.forEach { (stage, hours) ->
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(stage, style = MaterialTheme.typography.bodySmall)
+                        Label(valueText(hours, Metric.SLEEP))
+                    }
+                }
+            }
+        }
+
+        // Recorded workouts / sessions
+        if (day?.activities?.isNotEmpty() == true) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Label("RECORDED ACTIVITIES")
+                day.activities.forEach { act ->
+                    PulseCard(Modifier.fillMaxWidth()) {
+                        Text(act.name, style = MaterialTheme.typography.bodyMedium)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Label("${act.type.replace('_', ' ')} · ${number(act.minutes)} min")
+                            act.distanceKm?.let { km ->
+                                Text("${valueText(km, Metric.DISTANCE, p.imperial)} ${if (p.imperial) "mi" else "km"}", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Text(
+            "Tap any metric to inspect its detailed analysis and historical trend.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.outline
+        )
         Spacer(Modifier.height(20.dp))
     }
 }

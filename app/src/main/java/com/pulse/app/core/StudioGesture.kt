@@ -16,4 +16,51 @@ object StudioGestureRules {
         val best=widget.allowedSizes().minBy(::distance)
         return if(distance(best)+0.28f < distance(previous)) best else previous
     }
+
+    data class LiveDimensions(val widthPx: Float, val heightPx: Float, val targetFootprint: Footprint)
+
+    fun calculateLive(widget: Widget, deltaX: Float, deltaY: Float, stepX: Float, stepY: Float, gapPx: Float, previous: Footprint): LiveDimensions {
+        val baseW = widget.width * stepX - gapPx
+        val baseH = widget.height * stepY - gapPx
+        val rawCols = widget.width + deltaX / stepX
+        val rawRows = widget.height + deltaY / stepY
+        val target = resize(widget, rawCols, rawRows, previous)
+
+        val (liveW, liveH) = when (widget.shape) {
+            WidgetShape.CIRCLE -> {
+                val minD = 2 * stepX - gapPx
+                val maxD = 4 * stepX - gapPx
+                val d = if (abs(deltaX) > abs(deltaY)) deltaX else deltaY
+                val size = (baseW + d).coerceIn(minD, maxD)
+                size to size
+            }
+            WidgetShape.SQUARE -> {
+                val minD = 1 * stepX - gapPx
+                val maxD = 4 * stepX - gapPx
+                val d = if (abs(deltaX) > abs(deltaY)) deltaX else deltaY
+                val size = (baseW + d).coerceIn(minD, maxD)
+                size to size
+            }
+            WidgetShape.PILL -> {
+                val minW = 2 * stepX - gapPx
+                val maxW = 4 * stepX - gapPx
+                val w = (baseW + deltaX).coerceIn(minW, maxW)
+                w to baseH
+            }
+            WidgetShape.BANNER -> {
+                val minH = 1 * stepY - gapPx
+                val maxH = 2 * stepY - gapPx
+                val h = (baseH + deltaY).coerceIn(minH, maxH)
+                baseW to h
+            }
+            WidgetShape.RECTANGLE -> {
+                val minW = 2 * stepX - gapPx
+                val maxW = 4 * stepX - gapPx
+                val minH = 1 * stepY - gapPx
+                val maxH = 3 * stepY - gapPx
+                (baseW + deltaX).coerceIn(minW, maxW) to (baseH + deltaY).coerceIn(minH, maxH)
+            }
+        }
+        return LiveDimensions(liveW, liveH, target)
+    }
 }

@@ -19,6 +19,19 @@ android {
     buildFeatures { compose = true; buildConfig = true }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     testOptions { unitTests.isReturnDefaultValues = true }
+    signingConfigs {
+        create("debugConfig") {
+            storeFile = file("${rootDir}/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+    buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("debugConfig")
+        }
+    }
 }
 dependencies {
     implementation(platform("androidx.compose:compose-bom:2026.09.00"))

@@ -6,8 +6,8 @@ data class Widget(val id: String, val metric: Metric, val shape: WidgetShape = W
     val width: Int = 2, val height: Int = 2, val column: Int = 0, val row: Int = 0,
     val detailed: Boolean = true, val showGoal: Boolean = true, val showTrend: Boolean = true) {
     fun allowedSizes(): List<Footprint> = when(shape) {
-        WidgetShape.CIRCLE -> listOf(Footprint(2,2), Footprint(4,4))
-        WidgetShape.SQUARE -> listOf(Footprint(1,1), Footprint(2,2), Footprint(4,4))
+        WidgetShape.CIRCLE -> listOf(Footprint(2,2), Footprint(3,3), Footprint(4,4))
+        WidgetShape.SQUARE -> listOf(Footprint(1,1), Footprint(2,2), Footprint(3,3), Footprint(4,4))
         WidgetShape.PILL -> listOf(Footprint(2,1), Footprint(4,1))
         WidgetShape.BANNER -> listOf(Footprint(4,1), Footprint(4,2))
         WidgetShape.RECTANGLE -> listOf(Footprint(2,1), Footprint(2,2), Footprint(4,2), Footprint(4,3))

@@ -81,11 +81,26 @@ class MainActivity : ComponentActivity() {
     }) { padding ->
         Box(Modifier.fillMaxSize().padding(padding),contentAlignment=Alignment.TopCenter) {
             NavHost(nav,startDestination="home",modifier=Modifier.widthIn(max=680.dp).fillMaxSize()) {
-                composable("home") { HomeScreen(vm,p,snapshot,{nav.navigate("settings")},{nav.navigate("day/$it")}) }
+                composable("home") { HomeScreen(
+                    vm,
+                    p,
+                    snapshot,
+                    {nav.navigate("settings")},
+                    {metric, date -> nav.navigate("metric/${metric.name}/$date")},
+                    {nav.navigate("day/$it")}
+                ) }
                 composable("history") { HistoryScreen(p,snapshot) {nav.navigate("day/$it")} }
                 composable("achievements") { AchievementsScreen(snapshot) {nav.navigate("medal/$it")} }
                 composable("settings") { SettingsScreen(vm,p,snapshot,connect,{nav.popBackStack()},{nav.popBackStack(); vm.edit(true)}) }
-                composable("day/{date}") { entry -> DailyScreen(java.time.LocalDate.parse(entry.arguments?.getString("date")),p,snapshot) {nav.popBackStack()} }
+                composable("day/{date}") { entry ->
+                    val date = java.time.LocalDate.parse(entry.arguments?.getString("date") ?: java.time.LocalDate.now().toString())
+                    DailyScreen(date, p, snapshot, {nav.popBackStack()}, {metric, d -> nav.navigate("metric/${metric.name}/$d")})
+                }
+                composable("metric/{metric}/{date}") { entry ->
+                    val metric = Metric.valueOf(entry.arguments?.getString("metric") ?: Metric.STEPS.name)
+                    val date = java.time.LocalDate.parse(entry.arguments?.getString("date") ?: java.time.LocalDate.now().toString())
+                    MetricDetailScreen(metric, date, p, snapshot) { nav.popBackStack() }
+                }
                 composable("medal/{month}") { entry -> MedalScreen(java.time.YearMonth.parse(entry.arguments?.getString("month")),snapshot) {nav.popBackStack()} }
             }
         }

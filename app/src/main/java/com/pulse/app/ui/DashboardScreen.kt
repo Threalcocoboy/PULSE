@@ -19,7 +19,14 @@ import java.util.UUID
 import kotlin.math.abs
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable fun HomeScreen(vm: PulseViewModel,p: Preferences,snapshot: HealthSnapshot,settings:()->Unit,daily:(LocalDate)->Unit) {
+@Composable fun HomeScreen(
+    vm: PulseViewModel,
+    p: Preferences,
+    snapshot: HealthSnapshot,
+    settings: ()->Unit,
+    metricDetail: (Metric, LocalDate)->Unit,
+    daily: (LocalDate)->Unit
+) {
     val layout by vm.layout.collectAsStateWithLifecycle()
     val editing by vm.editing.collectAsStateWithLifecycle()
     val undo by vm.canUndo.collectAsStateWithLifecycle()
@@ -56,9 +63,19 @@ import kotlin.math.abs
             }
             if(snapshot.loading) LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp),color=Red)
             if(layout.isEmpty()) {Text("Your dashboard is empty.");PulseButton("Add widget"){vm.edit(true);add=true}}
-            StudioGrid(layout,editing,selected,scroll,viewportTop,viewportHeight,
-                select={selected=it},beginEdit=::beginEdit,commit=vm::commit,
-                configure={selected=it;configure=true},open={daily(today)}) {w->MetricWidget(w,p,current,snapshot.days,snapshot.loading)}
+            StudioGrid(
+                layout = layout,
+                editing = editing,
+                selected = selected,
+                scroll = scroll,
+                viewportTop = viewportTop,
+                viewportHeight = viewportHeight,
+                select = { selected = it },
+                beginEdit = ::beginEdit,
+                commit = vm::commit,
+                configure = { selected = it; configure = true },
+                openMetric = { metricDetail(it, today) }
+            ) { w -> MetricWidget(w, p, current, snapshot.days, snapshot.loading) }
             if(!editing && p.insights) {
                 val summary=remember(snapshot.days){HistoryMath.compare(snapshot.days,today,7,Metric.STEPS)}
                 HorizontalDivider(color=MaterialTheme.colorScheme.outline.copy(alpha=.5f))
@@ -78,9 +95,14 @@ import kotlin.math.abs
             }}
         }
     }
-    if(configure)layout.firstOrNull {it.id==selected}?.let {w->WidgetSheet(w,{configure=false},{next->
-        vm.commit(AdaptiveFlow.pack(layout.map {if(it.id==w.id)next else it},w.id,next.column,next.row))
-    },{vm.commit(AdaptiveFlow.pack(layout.filterNot {it.id==w.id}));configure=false;selected=null})}
+    if(configure)layout.firstOrNull {it.id==selected}?.let {w->WidgetSheet(
+        w,
+        p,
+        snapshot,
+        {configure=false},
+        {next->vm.commit(AdaptiveFlow.pack(layout.map {if(it.id==w.id)next else it},w.id,next.column,next.row))},
+        {vm.commit(AdaptiveFlow.pack(layout.filterNot {it.id==w.id}));configure=false;selected=null}
+    )}
 }
 
 fun DataMode.displayName()=when(this){DataMode.DEMO->"Demo";DataMode.HEALTH_CONNECT->"Health Connect";DataMode.GARMIN->"Garmin"}
