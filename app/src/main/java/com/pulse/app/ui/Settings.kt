@@ -39,7 +39,7 @@ private fun Modifier.toggleableCompat(checked: Boolean,change:(Boolean)->Unit)=t
     var category by rememberSaveable {mutableStateOf("")};var delete by rememberSaveable {mutableStateOf(false)};var reset by rememberSaveable {mutableStateOf(false)}
     val context=LocalContext.current;val scope=rememberCoroutineScope();var exportError by remember {mutableStateOf<String?>(null)};var exporting by remember {mutableStateOf(false)}
     BackHandler(category.isNotEmpty()){category=""}
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
+    Column(Modifier.reveal().fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
         Row(verticalAlignment=Alignment.CenterVertically){IconAction("back","Back"){if(category.isEmpty())back()else category=""};Label(if(category.isEmpty())"MY PULSE"else"SETTINGS")}
         SectionTitle(category.ifEmpty {"Settings"})
         if(category.isEmpty()) {
@@ -50,7 +50,7 @@ private fun Modifier.toggleableCompat(checked: Boolean,change:(Boolean)->Unit)=t
             }
         }
         when(category){
-            "Profile & Goals"->{GoalEditor(p,vm::preferences);SettingToggle("Use miles for distance",p.imperial){v->vm.preferences{it.copy(imperial=v)}};Text("Goals are preferences. Historical measurements and fixed monthly medal thresholds stay independent of them.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
+            "Profile & Goals"->{DisplayNameEditor(p,vm::preferences);GoalEditor(p,vm::preferences);SettingToggle("Use miles for distance",p.imperial){v->vm.preferences{it.copy(imperial=v)}};Text("Goals are preferences. Historical measurements and fixed monthly medal thresholds stay independent of them.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
             "Devices & Data"->{
                 Label("Data source")
                 listOf(DataMode.GARMIN to "Garmin Personal API",DataMode.HEALTH_CONNECT to "Health Connect",DataMode.DEMO to "Demo Mode").forEach{(mode,title)->
@@ -66,7 +66,7 @@ private fun Modifier.toggleableCompat(checked: Boolean,change:(Boolean)->Unit)=t
                     DataMode.HEALTH_CONNECT->{
                         Text("Health Connect",style=MaterialTheme.typography.titleMedium)
                         Label(if(vm.healthConnect.availability()==androidx.health.connect.client.HealthConnectClient.SDK_AVAILABLE)"Available on this device"else"Unavailable or needs an update")
-                        Text("Read-only steps, sleep sessions, average heart rate and distance. Recent history by default; optional history access imports up to 12 months. Hourly background refresh requires background access.",style=MaterialTheme.typography.bodySmall)
+                        Text("Read-only steps, distance, heart samples, resting heart, HRV, calories, exercise sessions and sleep stages. Recent history by default; optional history access imports up to 12 months. Hourly background refresh requires background access.",style=MaterialTheme.typography.bodySmall)
                         PulseButton(if(HealthConnectRepository.permissions.any {it in snapshot.granted}) "✓ Connected · review permissions" else "Review / request permissions",onClick=connect)
                         vm.healthConnect.requestedPermissions().forEach{permission->Label("${if(permission in snapshot.granted)"Granted"else"Missing"} · ${permission.substringAfterLast('.').removePrefix("READ_").lowercase().replace('_',' ')}")}
                     }
@@ -76,7 +76,7 @@ private fun Modifier.toggleableCompat(checked: Boolean,change:(Boolean)->Unit)=t
             "Appearance"->{Label("COLOR THEME");listOf("DARK" to "Dark","LIGHT" to "Light","SYSTEM" to "Follow system").forEach{(key,title)->Row(Modifier.fillMaxWidth().heightIn(min=56.dp).clickable{vm.preferences{it.copy(theme=key)}},verticalAlignment=Alignment.CenterVertically){RadioButton(p.theme==key,{vm.preferences{it.copy(theme=key)}});Text(title)}};SettingToggle("Animations",p.animations){v->vm.preferences{it.copy(animations=v)}};SettingToggle("Haptic feedback",p.haptics){v->vm.preferences{it.copy(haptics=v)}};Text("System animation settings take precedence. Charts always include readable numeric summaries.",style=MaterialTheme.typography.bodySmall)}
             "PULSE Studio"->{Text("A four-column canvas. Adaptive Flow makes space as you move and resize.");PulseButton("Edit dashboard",onClick=studio);OutlinedButton({reset=true},shape=RoundedCornerShape(8.dp)){Text("Restore default layout")};Text("Undo and redo are available in Studio. Up to 100 widgets, including duplicate metrics, are supported.",style=MaterialTheme.typography.bodySmall)}
             "PULSE Intelligence"->{SettingToggle("Local observations",p.insights){v->vm.preferences{it.copy(insights=v)}};PulseCard{Label("ON YOUR DEVICE",color=Red);Text("PULSE compares recorded periods and goals using local calculations. No external AI service is connected, and no health information is uploaded.");Text("These observations describe measurements. They do not diagnose conditions or explain their causes.",style=MaterialTheme.typography.bodySmall)}}
-            "Notifications"->{PulseCard{Label("IN-APP UPDATES");Text("Background notifications and reminders are not scheduled in this release.");Text("Goal progress and monthly medal status are available inside PULSE.",style=MaterialTheme.typography.bodySmall)}}
+            "Notifications"->{NotificationSetup(p,snapshot,vm::preferences)}
             "Privacy & Data"->{
                 PulseCard{Label("PRIVATE BY DESIGN",color=Red);Text("Health Connect and Garmin access are read-only. Records stay in the local database. Garmin credentials use Keystore-backed encryption and are excluded from exports and backups. No analytics or external AI service is used.")}
                 Text("Exports contain your current dataset, cached real records, goals and dashboard. The file may contain personal health information. Credentials are excluded.",style=MaterialTheme.typography.bodySmall)

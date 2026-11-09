@@ -42,7 +42,7 @@ private val dark=darkColorScheme(primary=Red,onPrimary=Color.White,secondary=Red
 private val light=lightColorScheme(primary=Color(0xFFC91D26),onPrimary=Color.White,secondary=Color(0xFFC91D26),secondaryContainer=Color(0xFFF6DFDA),onSecondaryContainer=Color(0xFF9E1720),primaryContainer=Color(0xFFF6DFDA),onPrimaryContainer=Color(0xFF111111),background=Color(0xFFF4F3EF),surface=Color.White,surfaceContainer=Color(0xFFE9E8E3),onBackground=Color(0xFF111111),onSurface=Color(0xFF111111),onSurfaceVariant=Color(0xFF595959),outline=Color(0xFFD0CECA))
 @Composable fun PulseTheme(p: Preferences, content: @Composable () -> Unit) {
     val isDark=when(p.theme) { "LIGHT" -> false; "SYSTEM" -> isSystemInDarkTheme(); else -> true }
-    CompositionLocalProvider(LocalAnimations provides p.animations,LocalDemo provides (p.mode==DataMode.DEMO)) {
+    CompositionLocalProvider(LocalAnimations provides (p.animations && android.provider.Settings.Global.getFloat(androidx.compose.ui.platform.LocalContext.current.contentResolver,android.provider.Settings.Global.ANIMATOR_DURATION_SCALE,1f)>0f),LocalDemo provides (p.mode==DataMode.DEMO)) {
         MaterialTheme(colorScheme=if(isDark) dark else light,typography=Typography(
             displayLarge=androidx.compose.ui.text.TextStyle(fontFamily=PulseTokens.display,fontSize=40.sp,lineHeight=44.sp,fontWeight=FontWeight.Normal),
             headlineLarge=androidx.compose.ui.text.TextStyle(fontFamily=PulseTokens.display,fontSize=30.sp,lineHeight=36.sp,fontWeight=FontWeight.Normal),
@@ -86,6 +86,11 @@ fun valueText(value: Double?, metric: Metric, imperial: Boolean=false): String {
         val s=size.minDimension; val stroke=Stroke(s*0.065f,cap=StrokeCap.Round,join=StrokeJoin.Round)
         fun line(x1: Float,y1: Float,x2: Float,y2: Float) { drawLine(color,Offset(x1*s,y1*s),Offset(x2*s,y2*s),s*0.065f,StrokeCap.Round) }
         when(name) {
+            "moon" -> { drawArc(color,55f,285f,false,Offset(s*.18f,s*.12f),Size(s*.65f,s*.75f),style=stroke);line(.7f,.13f,.52f,.45f);line(.52f,.45f,.8f,.7f) }
+            "foot" -> { drawOval(color,Offset(s*.2f,s*.15f),Size(s*.2f,s*.42f),style=stroke);drawOval(color,Offset(s*.6f,s*.35f),Size(s*.2f,s*.42f),style=stroke);drawCircle(color,s*.06f,Offset(s*.3f,s*.75f));drawCircle(color,s*.06f,Offset(s*.7f,s*.9f)) }
+            "heart" -> { val path=Path().apply{moveTo(.5f*s,.85f*s);cubicTo(-.2f*s,.4f*s,.25f*s,-.1f*s,.5f*s,.3f*s);cubicTo(.75f*s,-.1f*s,1.2f*s,.4f*s,.5f*s,.85f*s)};drawPath(path,color,style=stroke) }
+            "book" -> { line(.5f,.2f,.5f,.85f);line(.12f,.15f,.5f,.25f);line(.88f,.15f,.5f,.25f);line(.12f,.15f,.12f,.75f);line(.88f,.15f,.88f,.75f);line(.12f,.75f,.5f,.85f);line(.88f,.75f,.5f,.85f) }
+            "target" -> { drawCircle(color,s*.35f,style=stroke);drawCircle(color,s*.18f,style=stroke);drawCircle(color,s*.04f) }
             "home" -> { val path=Path().apply { moveTo(.12f*s,.44f*s); lineTo(.5f*s,.12f*s); lineTo(.88f*s,.44f*s); lineTo(.88f*s,.88f*s); lineTo(.58f*s,.88f*s); lineTo(.58f*s,.61f*s); lineTo(.4f*s,.61f*s); lineTo(.4f*s,.88f*s); lineTo(.12f*s,.88f*s); close() }; drawPath(path,color,style=stroke) }
             "history" -> { drawCircle(color,s*.35f,style=stroke); line(.5f,.26f,.5f,.51f); line(.5f,.51f,.67f,.61f) }
             "medal" -> { drawCircle(color,s*.25f,Offset(.5f*s,.65f*s),style=stroke); line(.32f,.08f,.18f,.25f); line(.18f,.25f,.39f,.43f); line(.68f,.08f,.82f,.25f); line(.82f,.25f,.61f,.43f) }
@@ -103,14 +108,7 @@ fun valueText(value: Double?, metric: Metric, imperial: Boolean=false): String {
 @Composable fun IconAction(name: String, description: String, enabled: Boolean=true, onClick:()->Unit) {
     IconButton(onClick,enabled=enabled,modifier=Modifier.semantics { contentDescription=description }) { Glyph(name) }
 }
-@Composable fun DotWordmark(modifier: Modifier=Modifier,pulseVisible: Boolean=true) {
-    val fg=MaterialTheme.colorScheme.onBackground
-    Canvas(modifier.size(120.dp,28.dp).semantics { contentDescription="PULSE" }) {
-        val glyphs=listOf(listOf("11110","10001","10001","11110","10000","10000","10000"),listOf("10001","10001","10001","10001","10001","10001","01110"),listOf("10000","10000","10000","10000","10000","10000","11111"),listOf("01111","10000","10000","01110","00001","00001","11110"),listOf("11111","10000","10000","11110","10000","10000","11111"))
-        val cell=min(size.width/30,size.height/7)
-        glyphs.forEachIndexed { g,rows -> rows.forEachIndexed { r,row -> row.forEachIndexed { c,ch -> if(ch=='1') drawCircle(if(r==3 && pulseVisible) Red else fg,cell*.34f,Offset((g*6+c+.5f)*cell,(r+.5f)*cell)) } } }
-    }
-}
+@Composable fun DotWordmark(modifier:Modifier=Modifier,pulseVisible:Boolean=true){BrandLogo(modifier.size(160.dp,32.dp))}
 @Composable fun DotRing(progress: Double, modifier: Modifier=Modifier) {
     val muted=MaterialTheme.colorScheme.outline
     Canvas(modifier.semantics { contentDescription="Goal progress ${(progress*100).toInt()} percent" }) {
@@ -118,28 +116,30 @@ fun valueText(value: Double?, metric: Metric, imperial: Boolean=false): String {
         repeat(96) { i -> val a=2*PI*i/96-PI/2; drawCircle(if(i<96*progress.coerceIn(0.0,1.0)) Red else muted,dot,center+Offset(cos(a).toFloat()*r,sin(a).toFloat()*r)) }
     }
 }
-@Composable fun DotChart(values: List<Double?>, modifier: Modifier=Modifier, selected: Int?=null, onSelect: ((Int)->Unit)?=null, bars: Boolean=false, description: String="Recorded values") {
+@Composable fun DotChart(values: List<Double?>, modifier: Modifier=Modifier, selected: Int?=null, onSelect: ((Int)->Unit)?=null, bars: Boolean=false, description: String="Recorded values",domainMin:Double=0.0,domainMax:Double?=null,xPositions:List<Float>?=null) {
     val muted=MaterialTheme.colorScheme.outline; val text=MaterialTheme.colorScheme.onSurfaceVariant
-    val max=values.filterNotNull().maxOrNull()?.coerceAtLeast(1.0) ?: 1.0
+    val max=domainMax ?: (values.filterNotNull().filter{it.isFinite()}.maxOrNull()?.coerceAtLeast(1.0) ?: 1.0)
+    fun chooseIndex(x:Float,width:Float)=if(xPositions!=null)xPositions.indices.minByOrNull{kotlin.math.abs(xPositions[it]-x/width)} ?: 0 else ((x/width)*values.size).toInt().coerceIn(0,values.lastIndex)
     val input=if(onSelect==null || values.isEmpty()) Modifier else Modifier.pointerInput(values) {
-        fun choose(x: Float) { onSelect(((x/size.width)*values.size).toInt().coerceIn(0,values.lastIndex)) }
+        fun choose(x: Float) { onSelect(chooseIndex(x,size.width.toFloat())) }
         detectTapGestures { choose(it.x) }
-    }.pointerInput(values) { detectDragGestures { change,_ -> change.consume(); onSelect(((change.position.x/size.width)*values.size).toInt().coerceIn(0,values.lastIndex)) } }
+    }.pointerInput(values) { detectDragGestures { change,_ -> change.consume(); onSelect(chooseIndex(change.position.x,size.width.toFloat())) } }
     Canvas(modifier.then(input).semantics { contentDescription=description; if(onSelect!=null && values.isNotEmpty()) { customActions=listOf(CustomAccessibilityAction("Next value") { onSelect(((selected ?: -1)+1).coerceAtMost(values.lastIndex)); true },CustomAccessibilityAction("Previous value") { onSelect(((selected ?: 1)-1).coerceAtLeast(0)); true }) } }) {
         val w=size.width; val h=size.height-12f; val pad=7f
         for(row in 0..3) for(x in 0..(w/14).toInt()) drawCircle(muted,.8f,Offset(x*14f,h*row/3))
         val step=(w-pad*2)/values.size.coerceAtLeast(1)
         values.forEachIndexed { i,v -> if(v!=null) {
-            val x=pad+step*(i+.5f); val y=h-(v/max).toFloat()*(h-8)
+            val x=if(xPositions!=null)pad+xPositions[i]*(w-pad*2) else pad+step*(i+.5f); val y=h-((v-domainMin)/(max-domainMin)).toFloat()*(h-8)
             val col=if(selected==i || (selected==null && i==values.lastIndex)) Red else text
             if(bars) {
-                var dy=h; while(dy>=y) { drawCircle(col,min(2.5f,step*.2f),Offset(x,dy)); dy-=9f }
+                var dy=h; while(dy>=y) { drawCircle(col,min(3.8f,step*.2f),Offset(x-min(4.8f,step*.3f),dy));drawCircle(col,min(3.8f,step*.2f),Offset(x+min(4.8f,step*.3f),dy)); dy-=9f }
             } else {
                 drawCircle(col,2.8f,Offset(x,y))
                 if(i>0 && values[i-1]!=null) {
-                    val a=Offset(x-step,h-(values[i-1]!!/max).toFloat()*(h-8)); val b=Offset(x,y)
+                    val a=Offset(if(xPositions!=null)pad+xPositions[i-1]*(w-pad*2) else x-step,h-((values[i-1]!!-domainMin)/(max-domainMin)).toFloat()*(h-8)); val b=Offset(x,y)
                     val distance=(b-a).getDistance(); val n=(distance/8).toInt().coerceAtLeast(1)
-                    repeat(n) { j -> drawCircle(col,1.9f,a+(b-a)*(j.toFloat()/n)) }
+                    val tangent=b-a;val normal=Offset(-tangent.y,tangent.x)/distance.coerceAtLeast(1f)*4.2f
+                    repeat(n) { j -> val point=a+(b-a)*(j.toFloat()/n);drawCircle(col,3.5f,point-normal);drawCircle(col,3.5f,point+normal) }
                 }
             }
             if(selected==i) drawCircle(col,6f,Offset(x,y),style=Stroke(1.5f))

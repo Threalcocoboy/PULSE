@@ -14,7 +14,7 @@ object ShareExport {
     suspend fun data(context: Context,p: Preferences,layout: List<Widget>,snapshot: HealthSnapshot,cached: List<DailyEntity>,garmin: List<GarminDayEntity> = emptyList()) {
         val file=withContext(Dispatchers.IO) {
             val root=JSONObject().put("format","pulse-export-v1").put("exportedAt",Instant.now().toString()).put("zone",ZoneId.systemDefault().id)
-                .put("mode",p.mode.name).put("preferences",PreferencesCodec.encode(p)).put("layout",LayoutCodec.encode(layout))
+                .put("mode",p.mode.name).put("preferences",PreferencesCodec.encode(p.copy(displayName=""))).put("layout",LayoutCodec.encode(layout))
             val days=JSONArray();snapshot.days.forEach {day->val readings=JSONObject();day.readings.forEach{(m,r)->readings.put(m.name,JSONObject().put("value",r.value ?: JSONObject.NULL).put("state",r.state.name).put("updated",r.updated?.toString() ?: JSONObject.NULL))};days.put(JSONObject().put("date",day.date.toString()).put("complete",day.complete).put("readings",readings))};root.put("currentDataset",days)
             val real=JSONArray();cached.forEach{r->real.put(JSONObject().put("date",r.date).put("zone",r.zone).put("steps",r.steps ?: JSONObject.NULL).put("sleepHours",r.sleep ?: JSONObject.NULL).put("averageHeartBpm",r.heart ?: JSONObject.NULL).put("distanceKm",r.distance ?: JSONObject.NULL).put("syncedAt",Instant.ofEpochMilli(r.synced).toString()).put("source","HEALTH_CONNECT"))};root.put("cachedRealRecords",real)
             val garminRows=JSONArray();garmin.forEach{r->garminRows.put(JSONObject(r.payload).put("source","GARMIN").put("calendar","GARMIN_ACCOUNT_LOCAL").put("synced",r.synced))};root.put("cachedGarminRecords",garminRows)

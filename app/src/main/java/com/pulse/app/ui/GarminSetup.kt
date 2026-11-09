@@ -16,6 +16,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pulse.app.PulseViewModel
 
 @Composable fun GarminSetup(vm: PulseViewModel) {
+    val operationError by vm.keyError.collectAsStateWithLifecycle()
+    val connection by vm.snapshot.collectAsStateWithLifecycle()
     val configured by vm.garminConfigured.collectAsStateWithLifecycle()
     val busy by vm.keyBusy.collectAsStateWithLifecycle()
     var entry by remember{mutableStateOf(false)}
@@ -30,10 +32,12 @@ import com.pulse.app.PulseViewModel
     }
     Column(verticalArrangement=Arrangement.spacedBy(10.dp)) {
         Text("Garmin Personal API",style=MaterialTheme.typography.titleMedium)
-        Label(if(configured)"Key stored with Android Keystore encryption"else"No personal key configured")
-        Text("Connect your own Garmin account. The key stays on this device. Replacing it clears the Garmin cache so accounts cannot mix.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        Label(if(configured)"Encrypted key stored · access follows sync status"else"No personal key configured")
+        Text("Connect your own Garmin account. The key stays on this device. A replacement is verified through Garmin before the cache is cleared, so accounts cannot mix.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         PulseButton(if(configured)"Import replacement key"else"Import key file",enabled=!busy){picker.launch(arrayOf("text/*","application/octet-stream"))}
         Row {SmallAction("Enter key",!busy){entry=true};if(configured)SmallAction("Remove key",!busy){remove=true}}
+        operationError?.let{Text(it,color=Red,style=MaterialTheme.typography.bodySmall)}
+        if(connection.mode==com.pulse.app.core.DataMode.GARMIN)Text(connection.error ?: connection.status,style=MaterialTheme.typography.bodySmall)
         if(busy)LinearProgressIndicator(Modifier.fillMaxWidth(),color=Red)
         Label("Read only · requests go directly to Garmin")
     }

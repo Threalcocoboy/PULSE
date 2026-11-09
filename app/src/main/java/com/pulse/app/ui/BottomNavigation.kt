@@ -8,6 +8,9 @@ import androidx.compose.runtime.*
 import androidx.compose.animation.core.*
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.*
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.*
+import kotlin.math.*
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -33,15 +36,19 @@ import androidx.compose.ui.unit.sp
                 .height(64.dp)
         ) {
             items.forEach { (route, label, icon) ->
+                var tapSerial by remember{mutableIntStateOf(0)}
                 val selected = current == route
                 val emphasis by animateFloatAsState(if(selected) 1.10f else 1f,tween(if(LocalAnimations.current) 180 else 0),label="Navigation emphasis")
+                val hand=remember {Animatable(0f)}
+                val motion=LocalAnimations.current
+                LaunchedEffect(selected,motion,tapSerial){if(selected&&motion){hand.snapTo(-360f);hand.animateTo(0f,tween(650,easing=FastOutSlowInEasing))}else hand.snapTo(0f)}
                 val color = if (selected) Red else MaterialTheme.colorScheme.onSurfaceVariant
 
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
-                        .clickable { navigate(route) }
+                        .clickable { tapSerial++;navigate(route) }
                         .semantics {
                             this.selected = selected
                             role = Role.Tab
@@ -52,11 +59,10 @@ import androidx.compose.ui.unit.sp
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                     ) {
-                        Glyph(
-                            name = icon,
-                            modifier = Modifier.size(PulseTokens.iconSize).graphicsLayer {scaleX=emphasis;scaleY=emphasis;translationY=if(selected) -1.dp.toPx() else 0f},
-                            color = color
-                        )
+                        if(route=="history") Canvas(Modifier.size(PulseTokens.iconSize)){
+                            drawCircle(color,size.minDimension*.35f,style=Stroke(1.5.dp.toPx()))
+                            rotate(hand.value){drawLine(color,center,center+Offset(0f,-size.height*.24f),1.5.dp.toPx());drawLine(color,center,center+Offset(size.width*.18f,size.height*.09f),1.5.dp.toPx())}
+                        } else Glyph(icon,Modifier.size(PulseTokens.iconSize).graphicsLayer{scaleX=emphasis;scaleY=emphasis;rotationZ=if(route=="achievements") hand.value*.07f else 0f;translationY=-kotlin.math.sin(hand.value/360f*kotlin.math.PI).toFloat()*3.dp.toPx()},color)
                         Spacer(Modifier.height(4.dp))
                         Text(
                             text = label,

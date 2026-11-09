@@ -24,7 +24,9 @@ data class AchievementDefinition(
     val description: String,
     val requirement: String,
     val target: Double,
-    val unit: String = ""
+    val unit: String = "",
+    val challengeIcon: String? = null,
+    val challengeCategory: String? = null
 )
 
 data class UserAchievement(

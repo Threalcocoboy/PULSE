@@ -34,8 +34,12 @@ import kotlinx.coroutines.launch
         if(count==365) (0L..11L).map {ago->val month=YearMonth.from(start.plusMonths(ago)); month.atDay(1) to HistoryMath.aggregate(days.filter {YearMonth.from(it.date)==month},metric)}
         else (0 until count).map {i->val date=start.plusDays(i.toLong());date to days.firstOrNull {it.date==date}?.value(metric)}
     }
+    var rawHeart by rememberSaveable{mutableStateOf(true)}
+    val recorded=remember(snapshot.heartSamples,start,end){snapshot.heartSamples.filter{it.time.atZone(ZoneId.systemDefault()).toLocalDate() in start..end}.groupBy{it.time.atZone(ZoneId.systemDefault()).toLocalDate()}.values.flatMap{day->val source=day.minOf{it.source};day.filter{it.source==source}.distinctBy{it.time}}.sortedBy{it.time}}
+    val raw=remember(recorded){HistorySamples.plot(recorded)}
+    val samples=metric==Metric.HEART&&rawHeart
     val summary=remember(snapshot.days,end,count,metric){HistoryMath.compare(snapshot.days,end,if(count==365) java.time.temporal.ChronoUnit.DAYS.between(start,end).toInt()+1 else count,metric)}
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(PulseTokens.screenPadding),verticalArrangement=Arrangement.spacedBy(14.dp)) {
+    Column(Modifier.reveal().fillMaxSize().verticalScroll(rememberScrollState()).padding(PulseTokens.screenPadding),verticalArrangement=Arrangement.spacedBy(14.dp)) {
         SectionTitle("History")
         if(LocalDemo.current)Label("Demo data")
         PeriodSegments(count){count=it;selected=-1}
@@ -49,9 +53,14 @@ import kotlinx.coroutines.launch
             Label(if(metric.cumulative) "${metric.label.uppercase()} / TOTAL" else "${metric.label.uppercase()} / RECORDED AVERAGE")
             Text(valueText(summary.value,metric,p.imperial),fontSize=36.sp,fontWeight=FontWeight.Normal)
             if(metric!=Metric.SLEEP)Label(if(metric==Metric.DISTANCE && p.imperial)"mi" else metric.unit)
-            DotChart(dateValues.map {it.second},Modifier.fillMaxWidth().height(150.dp),selected.takeIf {it in dateValues.indices},{if(selected!=it && p.haptics)haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove);selected=it},bars=metric in setOf(Metric.STEPS,Metric.DISTANCE,Metric.SLEEP),description="${metric.label}, ${summary.valid} recorded days of ${summary.total}. Total or average ${valueText(summary.value,metric,p.imperial)}. Swipe or use next value to inspect.")
-            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Label(start.format(DateTimeFormatter.ofPattern("d MMM")));Label(end.format(DateTimeFormatter.ofPattern("d MMM")))}
-            if(selected in dateValues.indices) {val point=dateValues[selected];Text("${point.first.format(DateTimeFormatter.ofPattern(if(count==365)"MMMM yyyy" else "EEE, d MMM"))} · ${valueText(point.second,metric,p.imperial)} ${if(metric==Metric.SLEEP)""else metric.unit}",color=Red);if(count!=365) SmallAction("Open day") {daily(point.first)}}
+            if(metric==Metric.HEART)Row{FilterChip(rawHeart,{rawHeart=true;selected=-1},label={Text("Samples")});FilterChip(!rawHeart,{rawHeart=false;selected=-1},label={Text("Daily averages")})}
+            val values=if(samples)raw.map{it.bpm} else dateValues.map{it.second}
+            val points=if(samples&&raw.isNotEmpty()){val first=start.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli();val range=end.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()-first;raw.map{(it.time.toEpochMilli()-first).toFloat()/range}}else null
+            AxisChart(values,metric,selected.takeIf{it in values.indices},{selected=it},!samples&&metric in setOf(Metric.STEPS,Metric.DISTANCE,Metric.SLEEP),points,p.imperial)
+            if(samples){Text(when{snapshot.error!=null->"Import failed · retained samples";snapshot.status.contains("unavailable",ignoreCase=true)->"Health Connect or source unavailable";Metric.HEART !in snapshot.available&&snapshot.mode!=DataMode.DEMO->"Heart-rate read permission is not granted";snapshot.heartSamples.isEmpty()->"No source heart-rate samples imported. Recorded daily averages are available separately.";raw.isEmpty()->"No authorized heart-rate samples in this interval. Daily averages remain available when recorded.";else->"${recorded.size} actual samples · ${raw.size} plotted observations (extrema retained) · bpm"},style=MaterialTheme.typography.bodySmall);if(selected in raw.indices)Text("${raw[selected].time.atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("d MMM HH:mm:ss"))} · ${raw[selected].bpm} bpm",color=Red)}
+
+            Row(Modifier.fillMaxWidth().padding(start=54.dp),horizontalArrangement=Arrangement.SpaceBetween){Label(start.format(DateTimeFormatter.ofPattern("d MMM")));Label(end.format(DateTimeFormatter.ofPattern("d MMM")))}
+            if(!samples&&selected in dateValues.indices) {val point=dateValues[selected];Text("${point.first.format(DateTimeFormatter.ofPattern(if(count==365)"MMMM yyyy" else "EEE, d MMM"))} · ${valueText(point.second,metric,p.imperial)} ${if(metric==Metric.SLEEP)""else if(metric==Metric.DISTANCE&&p.imperial)"mi"else metric.unit}",color=Red);if(count!=365) SmallAction("Open day") {daily(point.first)}}
             else Label("TOUCH THE DOTS TO EXPLORE")
         }
         Row(Modifier.fillMaxWidth().padding(vertical=4.dp),horizontalArrangement=Arrangement.spacedBy(20.dp)) {

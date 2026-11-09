@@ -7,7 +7,7 @@ import kotlin.math.abs
 enum class Metric(val label: String, val unit: String, val cumulative: Boolean = false) {
     STEPS("Steps", "steps", true), DISTANCE("Distance", "km", true), HEART("Heart rate", "bpm"),
     RESTING_HEART("Resting heart", "bpm"), SLEEP("Sleep", "h"), SLEEP_STAGES("Sleep stages", "h"),
-    BATTERY("Body Battery", "%"), STRESS("Stress", "/100"), HRV("HRV", "ms"),
+    BATTERY("Body Battery", "score"), STRESS("Stress", "/100"), HRV("HRV", "ms"),
     ACTIVE("Active minutes", "min", true), CALORIES("Calories", "kcal", true),
     ACTIVITIES("Activities", "sessions", true), GOAL("Goals", "%"), WEEKLY("Weekly steps", "steps", true), TREND("Step trend", "steps")
 }
@@ -16,17 +16,19 @@ enum class DataState { READY, EMPTY, PERMISSION_DENIED, UNSUPPORTED, UNAVAILABLE
 data class Reading(val value: Double? = null, val state: DataState = DataState.EMPTY, val updated: Instant? = null)
 data class RecordedActivity(val id: String,val name: String,val type: String,val localStart: String,val distanceKm: Double?,val minutes: Double?)
 data class DayData(val date: LocalDate, val readings: Map<Metric, Reading>, val complete: Boolean = false,
-    val sleepStages: Map<String,Double> = emptyMap(),val activities: List<RecordedActivity> = emptyList()) {
+    val sleepStages: Map<String,Double> = emptyMap(),val activities: List<RecordedActivity> = emptyList(),val sleepStart:Instant?=null,val sleepEnd:Instant?=null) {
     fun value(metric: Metric): Double? = readings[when(metric) { Metric.GOAL, Metric.WEEKLY, Metric.TREND -> Metric.STEPS; else -> metric }]?.value
 }
 data class HealthSnapshot(val days: List<DayData> = emptyList(), val status: String = "Not synchronized", val synced: Instant? = null,
-    val available: Set<Metric> = emptySet(), val granted: Set<String> = emptySet(), val loading: Boolean = false, val error: String? = null, val mode: DataMode = DataMode.HEALTH_CONNECT)
+    val available: Set<Metric> = emptySet(), val granted: Set<String> = emptySet(), val loading: Boolean = false, val error: String? = null, val mode: DataMode = DataMode.HEALTH_CONNECT, val heartSamples: List<HeartSample> = emptyList())
 data class Preferences(val onboarded: Boolean = false, val mode: DataMode = DataMode.DEMO, val stepGoal: Int = 5530,
     val sleepGoal: Double = 8.0, val theme: String = "DARK", val animations: Boolean = true, val haptics: Boolean = true,
     val insights: Boolean = true, val imperial: Boolean = false,
     val distanceGoal: Double = 5.0, val activeGoal: Int = 30, val workoutGoal: Int = 3,
-    val enabledGoals: Set<Metric> = setOf(Metric.STEPS, Metric.SLEEP)) {
-    fun sanitized() = copy(stepGoal = stepGoal.coerceIn(100, 100000), sleepGoal = sleepGoal.takeIf { it.isFinite() }?.coerceIn(1.0, 16.0) ?: 8.0,
+    val enabledGoals: Set<Metric> = setOf(Metric.STEPS, Metric.SLEEP),
+    val displayName: String = "", val introSeen: Boolean = false, val onboardingStep: Int = 0,
+    val progressNotifications: Boolean = false, val notificationMetrics: Set<Metric> = setOf(Metric.STEPS,Metric.DISTANCE)) {
+    fun sanitized() = copy(displayName=displayName.filter { !it.isISOControl() }.trim().take(40), onboardingStep=onboardingStep.coerceIn(0,6), notificationMetrics=notificationMetrics.intersect(setOf(Metric.STEPS,Metric.DISTANCE,Metric.ACTIVE,Metric.CALORIES)),stepGoal = stepGoal.coerceIn(100, 100000), sleepGoal = sleepGoal.takeIf { it.isFinite() }?.coerceIn(1.0, 16.0) ?: 8.0,
         distanceGoal = distanceGoal.takeIf { it.isFinite() }?.coerceIn(.5,100.0) ?: 5.0,
         activeGoal = activeGoal.coerceIn(5,300), workoutGoal = workoutGoal.coerceIn(1,21),
         enabledGoals = enabledGoals.intersect(Goals.supported).ifEmpty { setOf(Metric.STEPS) },

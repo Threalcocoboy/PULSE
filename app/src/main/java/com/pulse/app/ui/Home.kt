@@ -8,6 +8,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.*
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -20,14 +21,14 @@ import kotlin.math.abs
 fun metricDescription(metric: Metric): String = when (metric) {
     Metric.STEPS -> "Daily step count and progress toward your goal"
     Metric.DISTANCE -> "Total distance covered on foot"
-    Metric.HEART -> "Current and resting heart rate monitoring"
+    Metric.HEART -> "Recorded heart rate averages; samples are available in History"
     Metric.RESTING_HEART -> "Baseline cardiovascular recovery indicator"
     Metric.SLEEP -> "Total sleep duration and nightly rest tracking"
     Metric.SLEEP_STAGES -> "Duration breakdown across deep, light and REM stages"
     Metric.BATTERY -> "Garmin recovery and energy score on a 0–100 scale"
     Metric.STRESS -> "Autonomic nervous system strain on a 0–100 scale"
     Metric.HRV -> "Heart rate variability overnight trend and baseline"
-    Metric.ACTIVE -> "Moderate and vigorous intensity physical minutes"
+    Metric.ACTIVE -> "Recorded exercise minutes; source definitions may differ"
     Metric.CALORIES -> "Total daily active and resting energy expenditure"
     Metric.ACTIVITIES -> "Recorded workout sessions and exercise logs"
     Metric.GOAL -> "All your personal goals and their recorded progress"
@@ -58,304 +59,24 @@ fun sizeDisplayName(shape: WidgetShape, footprint: Footprint): String = when (sh
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable internal fun WidgetSheet(
-    w: Widget,
-    p: Preferences = Preferences(),
-    snapshot: HealthSnapshot = HealthSnapshot(),
-    dismiss: () -> Unit,
-    change: (Widget) -> Unit,
-    remove: () -> Unit,
-    isNew: Boolean = false
-) {
-    var draft by remember(w) { mutableStateOf(w) }
-    var confirmDelete by rememberSaveable { mutableStateOf(false) }
-    val today = LocalDate.now()
-    val currentDay = snapshot.days.firstOrNull { it.date == today }
-
-    ModalBottomSheet(
-        onDismissRequest = {
-            dismiss()
-        },
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = MaterialTheme.colorScheme.background,
-        dragHandle = {
-            Box(
-                Modifier
-                    .padding(top = 10.dp, bottom = 6.dp)
-                    .size(width = 32.dp, height = 4.dp)
-                    .background(MaterialTheme.colorScheme.outline, RoundedCornerShape(2.dp))
-            )
-        }
-    ) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            // Header
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(if(isNew) "Create widget" else "Edit widget", style = MaterialTheme.typography.titleLarge)
-                    Text(
-                        "${draft.metric.label} · ${metricDescription(draft.metric)}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                IconAction("close", "Close editor", onClick = {
-                    dismiss()
-                })
-            }
-
-            // Live Widget Preview
-            Column(
-                Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Label("LIVE PREVIEW")
-                    Text(
-                        "${draft.shape.name.lowercase().replaceFirstChar(Char::titlecase)} · ${draft.width}×${draft.height}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 150.dp, max = 220.dp)
-                        .clip(RoundedCornerShape(PulseTokens.corner))
-                        .background(MaterialTheme.colorScheme.surfaceContainer)
-                        .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(PulseTokens.corner))
-                        .padding(14.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    val previewWidth = when (draft.width) {
-                        1 -> 90.dp
-                        2 -> 160.dp
-                        else -> 280.dp
-                    }
-                    val previewHeight = when (draft.height) {
-                        1 -> 70.dp
-                        2 -> 140.dp
-                        else -> 190.dp
-                    }
-                    Box(Modifier.size(previewWidth.coerceAtMost(190.dp), if (draft.shape in setOf(WidgetShape.CIRCLE, WidgetShape.SQUARE)) previewWidth.coerceAtMost(190.dp) else previewHeight)) {
-                        MetricWidget(draft, p, currentDay, snapshot.days, false)
-                    }
-                }
-            }
-
-            // Metric Selection (Structured Flow)
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Label("METRIC")
-                val categories = listOf(
-                    "Activity" to listOf(Metric.STEPS, Metric.DISTANCE, Metric.ACTIVE, Metric.CALORIES),
-                    "Vitals" to listOf(Metric.HEART, Metric.RESTING_HEART, Metric.HRV),
-                    "Recovery" to listOf(Metric.SLEEP, Metric.SLEEP_STAGES, Metric.BATTERY, Metric.STRESS),
-                    "Goals & Trends" to listOf(Metric.GOAL, Metric.WEEKLY, Metric.TREND)
-                )
-
-                categories.forEach { (categoryName, metrics) ->
-                    Text(categoryName, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
-                    FlowRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        metrics.forEach { m ->
-                            val selected = draft.metric == m
-                            FilterChip(
-                                selected = selected,
-                                onClick = {
-                                    draft = draft.copy(metric = m)
-                                },
-                                label = {
-                                    Text(
-                                        m.label,
-                                        color = if (selected) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurface
-                                    )
-                                },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = MaterialTheme.colorScheme.onSurface,
-                                    containerColor = MaterialTheme.colorScheme.surface
-                                ),
-                                border = FilterChipDefaults.filterChipBorder(
-                                    borderColor = if (selected) Red else MaterialTheme.colorScheme.outline,
-                                    enabled = true,
-                                    selected = selected
-                                )
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Shape Selection (With Visual Previews)
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Label("SHAPE")
-                Row(
-                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    WidgetShape.entries.forEach { s ->
-                        val selected = draft.shape == s
-                        Box(
-                            Modifier
-                                .width(96.dp)
-                                .height(72.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (selected) MaterialTheme.colorScheme.surfaceContainer else MaterialTheme.colorScheme.surface)
-                                .border(
-                                    if (selected) 1.5.dp else 1.dp,
-                                    if (selected) Red else MaterialTheme.colorScheme.outline,
-                                    RoundedCornerShape(8.dp)
-                                )
-                                .clickable {
-                                    val next = draft.copy(shape = s)
-                                    val bestSize = next.allowedSizes().minBy {
-                                        abs(it.columns - draft.width) + abs(it.rows - draft.height)
-                                    }
-                                    draft = next.copy(width = bestSize.columns, height = bestSize.rows)
-                                }
-                                .padding(8.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                // Visual Shape Icon
-                                ShapePreviewIcon(s, selected)
-                                Text(
-                                    s.name.lowercase().replaceFirstChar(Char::titlecase),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Size Selection
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Label("SIZE")
-                Row(
-                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    draft.allowedSizes().forEach { footprint ->
-                        val selected = draft.width == footprint.columns && draft.height == footprint.rows
-                        FilterChip(
-                            selected = selected,
-                            onClick = {
-                                draft = draft.copy(width = footprint.columns, height = footprint.rows)
-                            },
-                            label = { Text(sizeDisplayName(draft.shape, footprint)) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = MaterialTheme.colorScheme.onSurface,
-                                containerColor = MaterialTheme.colorScheme.surface
-                            ),
-                            border = FilterChipDefaults.filterChipBorder(
-                                borderColor = if (selected) Red else MaterialTheme.colorScheme.outline,
-                                enabled = true,
-                                selected = selected
-                            )
-                        )
-                    }
-                }
-            }
-
-            // Display Preferences
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Label("DISPLAY PREFERENCES")
-                SettingToggle("Detailed presentation", draft.detailed) {
-                    draft = draft.copy(detailed = it)
-                }
-
-                if (draft.metric in setOf(Metric.STEPS, Metric.SLEEP, Metric.GOAL, Metric.DISTANCE, Metric.ACTIVE)) {
-                    SettingToggle("Show goal indicator", draft.showGoal) {
-                        draft = draft.copy(showGoal = it)
-                    }
-                }
-
-                val canFitTrend = draft.shape != WidgetShape.PILL &&
-                    !(draft.shape == WidgetShape.SQUARE && draft.width == 1) &&
-                    !(draft.shape == WidgetShape.CIRCLE && draft.width == 2) &&
-                    draft.metric != Metric.SLEEP_STAGES
-
-                if (canFitTrend) {
-                    SettingToggle("Show recent trend sparkline", draft.showTrend) {
-                        draft = draft.copy(showTrend = it)
-                    }
-                }
-            }
-
-            // Footer Actions
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (confirmDelete) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(
-                            onClick = remove,
-                            colors = ButtonDefaults.textButtonColors(contentColor = Red)
-                        ) {
-                            Text("Confirm delete")
-                        }
-                        SmallAction("Cancel") { confirmDelete = false }
-                    }
-                } else {
-                    TextButton(
-                        onClick = { confirmDelete = true },
-                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant)
-                    ) {
-                        Text(if(isNew) "Cancel" else "Remove widget")
-                    }
-                }
-
-                PulseButton(if(isNew) "Preview placement" else "Save widget") {
-                    change(draft)
-                    dismiss()
-                }
-            }
-
-            Spacer(Modifier.height(16.dp))
-        }
-    }
-}
-
-@Composable private fun ShapePreviewIcon(shape: WidgetShape, selected: Boolean) {
-    val color = if (selected) Red else MaterialTheme.colorScheme.onSurfaceVariant
-    Box(
-        Modifier
-            .size(width = 36.dp, height = 24.dp)
-            .border(
-                1.5.dp,
-                color,
-                when (shape) {
-                    WidgetShape.CIRCLE -> CircleShape
-                    WidgetShape.SQUARE -> RoundedCornerShape(4.dp)
-                    WidgetShape.PILL -> RoundedCornerShape(50)
-                    WidgetShape.BANNER -> RoundedCornerShape(2.dp)
-                    WidgetShape.RECTANGLE -> RoundedCornerShape(4.dp)
-                }
-            )
-    )
+@Composable internal fun WidgetSheet(w:Widget,p:Preferences=Preferences(),snapshot:HealthSnapshot=HealthSnapshot(),dismiss:()->Unit,change:(Widget)->Unit,remove:()->Unit,isNew:Boolean=false) {
+ var draft by remember(w){mutableStateOf(w)};var tab by remember {mutableIntStateOf(0)};var menu by remember{mutableStateOf(false)}
+ ModalBottomSheet(onDismissRequest=dismiss,sheetState=rememberModalBottomSheetState(skipPartiallyExpanded=true)) {
+ Column(Modifier.fillMaxWidth().heightIn(max=620.dp).padding(horizontal=16.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
+ Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text(if(isNew)"Add widget" else "Edit widget",Modifier.weight(1f),style=MaterialTheme.typography.titleLarge);IconAction("close","Close editor",onClick=dismiss)}
+ BoxWithConstraints(Modifier.fillMaxWidth().height(180.dp),contentAlignment=Alignment.Center) {
+ val cell=(maxWidth-24.dp)/4;val actualWidth=(cell+8.dp)*draft.width-8.dp;val actualHeight=(cell+8.dp)*draft.height-8.dp
+ val scale=minOf(1f,170f/actualHeight.value)
+ Box(Modifier.requiredSize(actualWidth,actualHeight).graphicsLayer{scaleX=scale;scaleY=scale}){MetricWidget(draft,p,snapshot.days.firstOrNull{it.date==LocalDate.now()},snapshot.days,false)}
+ }
+ Row {(if(isNew)listOf("Metric","Shape & size")else listOf("Metric","Shape & size","Display")).forEachIndexed{i,t->FilterChip(tab==i,{tab=i},label={Text(t)},modifier=Modifier.weight(1f))}}
+ Box(Modifier.fillMaxWidth().height(when(tab){0->96.dp;1->150.dp;else->144.dp})) {when(tab){
+ 0->Column {OutlinedButton({menu=true},Modifier.fillMaxWidth()){Text(draft.metric.label)};DropdownMenu(menu,{menu=false},modifier=Modifier.heightIn(max=300.dp)){Metric.entries.forEach{m->DropdownMenuItem(text={Text(m.label)},onClick={draft=draft.copy(metric=m);menu=false})}};Text(metricDescription(draft.metric),style=MaterialTheme.typography.bodySmall)}
+ 1->Column {Row(Modifier.horizontalScroll(rememberScrollState())){WidgetShape.entries.forEach{shape->FilterChip(draft.shape==shape,{val n=draft.copy(shape=shape);val size=n.allowedSizes().minBy{abs(it.columns-draft.width)+abs(it.rows-draft.height)};draft=n.copy(width=size.columns,height=size.rows)},label={Text(shape.name.lowercase())})}};FlowRow{draft.allowedSizes().forEach{f->FilterChip(draft.width==f.columns&&draft.height==f.rows,{draft=draft.copy(width=f.columns,height=f.rows)},label={Text("${f.columns} × ${f.rows}")})}}}
+ else->Column{listOf("Details" to draft.detailed,"Goal indicator" to draft.showGoal,"Trend" to draft.showTrend).forEachIndexed{i,v->Row(Modifier.fillMaxWidth().height(48.dp),verticalAlignment=Alignment.CenterVertically){Text(v.first,Modifier.weight(1f));Switch(v.second,{value->draft=when(i){0->draft.copy(detailed=value);1->draft.copy(showGoal=value);else->draft.copy(showTrend=value)}})}}}
+ }}
+ Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){if(!isNew)TextButton(remove){Text("Remove",color=Red)} else TextButton(dismiss){Text("Cancel")};PulseButton(if(isNew)"Add" else "Save widget"){change(draft);dismiss()}}
+ Spacer(Modifier.height(12.dp))
+ }
+ }
 }

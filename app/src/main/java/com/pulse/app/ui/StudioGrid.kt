@@ -87,6 +87,13 @@ import kotlin.math.*
         }
 
         val updateRef = rememberUpdatedState(::update)
+        LaunchedEffect(active) {
+            var previous=0L
+            while(active!=null) {
+                val now=withFrameNanos{it};val dt=if(previous==0L)0f else ((now-previous)/1e9f).coerceAtMost(.04f);previous=now
+                if(kind==StudioGesture.MOVE){val edge=with(density){64.dp.toPx()};val velocity=when{pointerY<viewportTop+edge->-((viewportTop+edge-pointerY)/edge).coerceIn(0f,1f)*650f;pointerY>viewportTop+viewportHeight-edge->((pointerY-viewportTop-viewportHeight+edge)/edge).coerceIn(0f,1f)*650f;else->0f};val consumed=scroll.scrollBy(velocity*dt);if(consumed!=0f)updateRef.value(Offset(0f,consumed))}
+            }
+        }
         val shown = preview ?: layout
         val rows = shown.maxOfOrNull { it.row + it.height } ?: 0
 
@@ -249,6 +256,7 @@ import kotlin.math.*
 
                     Box(
                         Modifier
+                            .reveal(layout.indexOfFirst{it.id==w.id})
                             .offset(x, y)
                             .size(currentWidth, currentHeight)
                             .zIndex(if (isCurrentActive) 5f else if (chosen) 2f else 0f)

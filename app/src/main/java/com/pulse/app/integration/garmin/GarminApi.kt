@@ -51,6 +51,7 @@ class GarminApi(private val transport: GarminTransport,private val key:()->Strin
     private var token: GarminToken?=null
     private var retryUntil: Instant?=null
     private val mutex=Mutex()
+    suspend fun validateKey(candidate:String){GarminApi(transport,{candidate},clock).authorize()}
     fun reset(){token=null;retryUntil=null}
     suspend fun json(path: String): Any = mutex.withLock {
         retryUntil?.let {if(clock().isBefore(it))throw GarminFailure(GarminError.RATE_LIMIT,java.time.Duration.between(clock(),it).seconds)}

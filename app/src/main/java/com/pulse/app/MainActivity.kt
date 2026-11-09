@@ -26,7 +26,10 @@ import com.pulse.app.integration.HealthConnectRepository
 import com.pulse.app.ui.*
 
 class MainActivity : ComponentActivity() {
+    companion object {private var processOpened=false}
+    private var coldLaunch=false
     override fun onCreate(savedInstanceState: Bundle?) {
+        coldLaunch=savedInstanceState==null&&!processOpened;processOpened=true
         super.onCreate(savedInstanceState); enableEdgeToEdge(statusBarStyle=SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),navigationBarStyle=SystemBarStyle.dark(android.graphics.Color.TRANSPARENT))
         if(android.os.Build.VERSION.SDK_INT>=29) window.isNavigationBarContrastEnforced=false
         setContent {
@@ -40,6 +43,7 @@ class MainActivity : ComponentActivity() {
                 val light=when(p.theme){"LIGHT"->true;"SYSTEM"->!systemDark;else->false}
                 WindowCompat.getInsetsController(window,window.decorView).apply {isAppearanceLightStatusBars=light;isAppearanceLightNavigationBars=light}
             }
+            CompositionLocalProvider(LocalColdLaunch provides coldLaunch) {
             PulseTheme(p.copy(animations=p.animations && systemMotion)) {
                 Surface(Modifier.fillMaxSize(),color=MaterialTheme.colorScheme.background) {
                     val permissionLauncher=rememberLauncherForActivityResult(PermissionController.createRequestPermissionResultContract()) { vm.refresh() }
@@ -52,11 +56,13 @@ class MainActivity : ComponentActivity() {
                     }
                     val privacyRequested=intent?.action in setOf("androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE","android.intent.action.VIEW_PERMISSION_USAGE")
                     if(privacyRequested) PrivacyRationale { finish() }
-                    else if(!ready) Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center) { DotWordmark() }
-                    else if(!p.onboarded) Onboarding(p,setupSnapshot,vm::preferences,connect) { vm.preferences { it.copy(onboarded=true) } }
+                    else if(!ready) Box(Modifier.fillMaxSize())
+                    else if(!p.onboarded&&!p.introSeen) FirstLaunchIntro(coldLaunch){vm.preferences{it.copy(introSeen=true)}}
+                    else if(!p.onboarded) Onboarding(p,setupSnapshot,vm::preferences,connect,vm) { vm.preferences { it.copy(onboarded=true) } }
                     else PulseApp(vm,p,connect)
                 }
             }
+        }
         }
     }
 }
@@ -65,12 +71,13 @@ class MainActivity : ComponentActivity() {
     val backstack by nav.currentBackStackEntryAsState()
     val current=backstack?.destination?.route ?: "home"
     val editing by vm.editing.collectAsStateWithLifecycle()
+    val pending by vm.pendingUnlocks.collectAsStateWithLifecycle()
     val achievements by vm.achievements.collectAsStateWithLifecycle()
     val snapshotRaw by vm.snapshot.collectAsStateWithLifecycle()
     val snapshot=if(snapshotRaw.mode==p.mode) snapshotRaw else HealthSnapshot(loading=true,mode=p.mode)
     val owner=androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(owner,p.mode) {
-        val observer=androidx.lifecycle.LifecycleEventObserver {_,event->if(event==androidx.lifecycle.Lifecycle.Event.ON_RESUME && p.mode!=DataMode.DEMO)vm.refreshIfNeeded()}
+        val observer=androidx.lifecycle.LifecycleEventObserver {_,event->if(event==androidx.lifecycle.Lifecycle.Event.ON_RESUME && p.mode!=DataMode.DEMO)vm.foregroundRefresh()}
         owner.lifecycle.addObserver(observer)
         onDispose {owner.lifecycle.removeObserver(observer)}
     }
@@ -99,8 +106,10 @@ class MainActivity : ComponentActivity() {
                     {metric, date -> nav.navigate("metric/${metric.name}/$date")},
                     {nav.navigate("day/$it")}
                 ) }
-                composable("history") { HistoryScreen(p,snapshot) {nav.navigate("day/$it")} }
-                composable("achievements") { AchievementsScreen(snapshot,achievements,{nav.navigate("year/$it")}) {nav.navigate("medal/$it")} }
+                composable("history") { RefreshSurface(snapshot.loading,{vm.refresh()}) {HistoryScreen(p,snapshot) {nav.navigate("day/$it")}} }
+                composable("achievements") { CollectionScreen(vm,snapshot,achievements,{nav.navigate("year/$it")},{nav.navigate("medal/$it")},{nav.navigate("challenge/new")},{nav.navigate("challenge/detail/$it")});UnlockCelebration(pending,vm::acknowledgeUnlocks) }
+                composable("challenge/new") { ChallengeMaker(vm){nav.popBackStack()} }
+                composable("challenge/detail/{id}") { entry -> ChallengeDetailScreen(vm,entry.arguments?.getString("id") ?: ""){nav.popBackStack()} }
                 composable("settings") { SettingsScreen(vm,p,snapshot,connect,{nav.popBackStack()},{nav.popBackStack(); vm.edit(true)}) }
                 composable("day/{date}") { entry ->
                     val date = java.time.LocalDate.parse(entry.arguments?.getString("date") ?: java.time.LocalDate.now().toString())

@@ -50,7 +50,7 @@ import kotlin.math.*
     val earned = lifetime.count { it.unlocked }
     val selected = (allAchievements + monthly).firstOrNull { it.instanceId == selectedId }
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(PulseTokens.screenPadding), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(Modifier.reveal().fillMaxSize().verticalScroll(rememberScrollState()).padding(PulseTokens.screenPadding), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         SectionTitle("Achievements", "Your collection")
         if (LocalDemo.current) Label("Demo · sample achievements", color = Red)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
@@ -116,7 +116,7 @@ import kotlin.math.*
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick=onClick).padding(12.dp), horizontalAlignment=Alignment.CenterHorizontally, verticalArrangement=Arrangement.spacedBy(8.dp)) {
         PulseBadgeArt(item,Modifier.size(80.dp))
         Text(item.definition.name,style=MaterialTheme.typography.titleMedium,textAlign=TextAlign.Center)
-        Label(item.period?.format(DateTimeFormatter.ofPattern("MMM yyyy")) ?: item.definition.category.label)
+        Label(item.period?.format(DateTimeFormatter.ofPattern("MMM yyyy")) ?: item.definition.challengeCategory?.let{"Challenge reward · $it"} ?: item.definition.category.label)
         Text(if(item.unlocked) "Unlocked" else item.progressText,style=MaterialTheme.typography.bodySmall,textAlign=TextAlign.Center,color=if(item.unlocked) Red else MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
@@ -199,7 +199,7 @@ import kotlin.math.*
         }
 
         val earned=MonthlyBadges.history(item,history)
-        Label("${if(item.repeat==AchievementRepeat.MONTHLY) "Repeatable monthly" else "One-time achievement"} · Unlocked ${earned.size} times")
+        Label("${if(item.repeat==AchievementRepeat.STEP_FAMILY) "Persistent Monthly Step Badge" else if(item.repeat==AchievementRepeat.MONTHLY) "Monthly challenge" else "One-time achievement"} · Unlocked ${earned.size} times")
         earned.forEach { award ->
             Text(listOfNotNull(award.period?.format(DateTimeFormatter.ofPattern("MMMM yyyy")),award.unlockedDate?.format(DateTimeFormatter.ofPattern("d MMM yyyy"))).joinToString(" · "),style=MaterialTheme.typography.bodySmall)
         }
@@ -369,7 +369,8 @@ fun drawMedal(c: android.graphics.Canvas, m: Medal, compact: Boolean = false) {
         if (demo) Label("DEMO COLLECTION / SAMPLE DATA", color = Red)
         val main=items.lastOrNull {it.unlocked} ?: items.first()
         SeasonalBadge(main, Modifier.fillMaxWidth(.84f).aspectRatio(1f))
-        Label("Unlocked ${MonthlyBadges.history(main,history).size} times")
+        Label("Monthly Step Badge · Unlocked ${MonthlyBadges.familyCount(history)} times")
+        Text(if(main.unlocked) "${main.definition.name.removeSuffix(" Walker").uppercase()} CLASS" else "NO CLASS YET",style=MaterialTheme.typography.headlineMedium,color=Red)
         Text(medal.tier?.name ?: "NO MEDAL", fontSize = 28.sp, fontWeight = FontWeight.Normal)
         Label("MONTHLY STEP BADGE · ${medal.state}", color = if (medal.state == "PROVISIONAL") Red else MaterialTheme.colorScheme.onSurfaceVariant)
         Text("${number(medal.total?.toDouble())} TOTAL STEPS", style = MaterialTheme.typography.titleLarge)

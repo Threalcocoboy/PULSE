@@ -36,6 +36,17 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
         else -> current?.value(w.metric)
     }
 
+    if(w.metric==Metric.DISTANCE) {
+        BoxWithConstraints(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface,w.shape.outline()),contentAlignment=Alignment.Center){
+            val valueSize=if(maxHeight<100.dp)24.sp else 38.sp
+            val safe=if(w.shape==WidgetShape.CIRCLE) .70f else .86f
+            Column(Modifier.fillMaxWidth(safe).padding(vertical=4.dp),horizontalAlignment=Alignment.CenterHorizontally){
+                FitText("Distance",style=MaterialTheme.typography.labelSmall)
+                FitText(if(loading&&value==null) "···" else valueText(value,w.metric,p.imperial),Modifier.fillMaxWidth(),fontSize=valueSize,textAlign=TextAlign.Center)
+                FitText(if(p.imperial) "mi" else "km",style=MaterialTheme.typography.labelSmall)
+            }
+        };return
+    }
     when (w.shape) {
         WidgetShape.CIRCLE -> CircleWidgetContent(w, value, p, current, days, loading)
         WidgetShape.SQUARE -> SquareWidgetContent(w, value, p, current, days, loading)
@@ -102,7 +113,7 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Box(Modifier.size(6.dp).background(Red, CircleShape))
-                            Text(
+                            FitText(
                                 w.metric.label.uppercase(),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -118,7 +129,7 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
                             val countStr = if (loading && value == null) "···" else valueText(value, w.metric, p.imperial)
                             val fontSize = (safeSize.value * 0.22f / (countStr.length.coerceAtLeast(3) * 0.16f * scale))
                                 .coerceIn(24f, 44f).sp
-                            Text(
+                            FitText(
                                 countStr,
                                 fontSize = fontSize,
                                 fontWeight = FontWeight.Normal,
@@ -126,7 +137,7 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
                                 maxLines = 1
                             )
                             if (w.metric !in setOf(Metric.SLEEP, Metric.SLEEP_STAGES)) {
-                                Text(
+                                FitText(
                                     if (w.metric == Metric.DISTANCE && p.imperial) "mi" else w.metric.unit,
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -141,14 +152,14 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
                         ) {
                             if (hasGoal && value != null) {
                                 val percent = (progress * 100).toInt()
-                                Text(
+                                FitText(
                                     "$percent% of goal",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = if (percent >= 100) Red else MaterialTheme.colorScheme.onSurface,
                                     maxLines = 1
                                 )
                             } else {
-                                Text(
+                                FitText(
                                     when (current?.readings?.get(w.metric)?.state) {
                                         DataState.PERMISSION_DENIED -> "Permission needed"
                                         DataState.UNSUPPORTED -> "Unavailable"
@@ -180,7 +191,7 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                     ) {
-                        Text(
+                        FitText(
                             w.metric.label.uppercase(),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -191,7 +202,7 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
                         val countStr = if (loading && value == null) "···" else valueText(value, w.metric, p.imperial)
                         val fontSize = (safeSize.value * 0.28f / (countStr.length.coerceAtLeast(3) * 0.18f * scale))
                             .coerceIn(18f, 30f).sp
-                        Text(
+                        FitText(
                             countStr,
                             fontSize = fontSize,
                             fontWeight = FontWeight.Normal,
@@ -200,14 +211,14 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
                         )
                         Spacer(Modifier.height(2.dp))
                         if (hasGoal && value != null) {
-                            Text(
+                            FitText(
                                 "${(progress * 100).toInt()}%",
                                 fontSize = 11.sp,
                                 color = Red,
                                 fontWeight = FontWeight.Medium
                             )
                         } else {
-                            Text(
+                            FitText(
                                 if (w.metric == Metric.DISTANCE && p.imperial) "mi" else w.metric.unit,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -250,20 +261,20 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
                 verticalArrangement = Arrangement.SpaceBetween,
                 horizontalAlignment = Alignment.Start
             ) {
-                Text(
+                FitText(
                     w.metric.label,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Text(
+                FitText(
                     if (loading && value == null) "···" else valueText(value, w.metric, p.imperial),
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Normal,
                     maxLines = 1
                 )
-                Text(
+                FitText(
                     if (w.metric == Metric.DISTANCE && p.imperial) "mi" else w.metric.unit,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -280,24 +291,22 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(w.metric.label, style = MaterialTheme.typography.titleMedium)
+                    FitText(w.metric.label, style = MaterialTheme.typography.titleMedium)
                     if (w.showGoal && w.metric in setOf(Metric.STEPS, Metric.GOAL)) {
                         val pct = ((value ?: 0.0) / p.stepGoal * 100).toInt()
-                        Text("$pct% goal", style = MaterialTheme.typography.labelSmall, color = Red)
+                        FitText("$pct% goal", style = MaterialTheme.typography.labelSmall, color = Red)
                     }
                 }
 
-                Row(
-                    verticalAlignment = Alignment.Bottom,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text(
+                    FitText(
                         if (loading && value == null) "···" else valueText(value, w.metric, p.imperial),
                         fontSize = 42.sp,
                         fontWeight = FontWeight.Normal,
                         maxLines = 1
                     )
-                    Text(
+                    FitText(
                         if (w.metric == Metric.DISTANCE && p.imperial) "mi" else w.metric.unit,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -307,7 +316,7 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
 
                 if (w.showTrend) {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("Past 7 days", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        FitText("Past 7 days", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         DotChart(
                             days.takeLast(7).map { it.value(w.metric) },
                             Modifier.fillMaxWidth().height(60.dp),
@@ -344,7 +353,7 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
+                    FitText(
                         w.metric.label,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -354,18 +363,16 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
                     Box(Modifier.size(5.dp).background(Red, CircleShape))
                 }
 
-                Row(
-                    verticalAlignment = Alignment.Bottom,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text(
+                    FitText(
                         if (loading && value == null) "···" else valueText(value, w.metric, p.imperial),
                         fontSize = if (scale > 1.3f) 24.sp else 32.sp,
                         fontWeight = FontWeight.Normal,
                         maxLines = 1
                     )
                     if (w.metric !in setOf(Metric.SLEEP, Metric.SLEEP_STAGES)) {
-                        Text(
+                        FitText(
                             if (w.metric == Metric.DISTANCE && p.imperial) "mi" else w.metric.unit,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -427,20 +434,20 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(
+                    FitText(
                         w.metric.label,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1
                     )
-                    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        FitText(
                             if (loading && value == null) "···" else valueText(value, w.metric, p.imperial),
                             fontSize = 22.sp,
                             fontWeight = FontWeight.Normal,
                             maxLines = 1
                         )
-                        Text(
+                        FitText(
                             if (w.metric == Metric.DISTANCE && p.imperial) "mi" else w.metric.unit,
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -455,7 +462,7 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
                             .background(MaterialTheme.colorScheme.surfaceContainer)
                             .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
-                        Text("$pct%", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = Red)
+                        FitText("$pct%", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = Red)
                     }
                 }
             }
@@ -465,7 +472,7 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
                 Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Text(w.metric.label, style = MaterialTheme.typography.bodyMedium)
+                FitText(w.metric.label, style = MaterialTheme.typography.bodyMedium)
 
                 Row(
                     Modifier.weight(1f).fillMaxWidth(),
@@ -478,11 +485,11 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
                         val count = if (loading && value == null) "···" else valueText(value, w.metric, p.imperial)
                         val font = minOf(44f, this@BoxWithConstraints.maxWidth.value * 0.58f / (count.length * 0.56f * scale))
                             .coerceAtLeast(23f).sp
-                        Text(count, fontSize = font, fontWeight = FontWeight.Normal, maxLines = 1)
+                        FitText(count, fontSize = font, fontWeight = FontWeight.Normal, maxLines = 1)
                         if (w.showGoal && w.metric in setOf(Metric.STEPS, Metric.GOAL)) {
-                            Text("of ${number(p.stepGoal.toDouble())} goal", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            FitText("of ${number(p.stepGoal.toDouble())} goal", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         } else if (w.metric !in setOf(Metric.SLEEP, Metric.SLEEP_STAGES)) {
-                            Text(if (w.metric == Metric.DISTANCE && p.imperial) "mi" else w.metric.unit, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            FitText(if (w.metric == Metric.DISTANCE && p.imperial) "mi" else w.metric.unit, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
 
@@ -494,7 +501,7 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
                             val ring = minOf(maxWidth, maxHeight, 126.dp)
                             Box(Modifier.size(ring), contentAlignment = Alignment.Center) {
                                 DotRing((value ?: 0.0) / p.stepGoal, Modifier.fillMaxSize())
-                                Text(
+                                FitText(
                                     if (value == null) "—" else "${((value / p.stepGoal) * 100).toInt()}%",
                                     fontSize = if (scale > 1.3f) 17.sp else 22.sp
                                 )
@@ -570,7 +577,7 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
                         .size(10.dp)
                         .background(if (value != null) Red else MaterialTheme.colorScheme.outline, CircleShape)
                 )
-                Text(
+                FitText(
                     w.metric.label,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -582,14 +589,14 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Text(
+                FitText(
                     if (loading && value == null) "···" else valueText(value, w.metric, p.imperial),
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1
                 )
                 if (w.metric !in setOf(Metric.SLEEP, Metric.SLEEP_STAGES)) {
-                    Text(
+                    FitText(
                         if (w.metric == Metric.DISTANCE && p.imperial) "mi" else w.metric.unit,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -597,7 +604,7 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
                 }
                 if (isWide && w.showGoal && w.metric in setOf(Metric.STEPS, Metric.GOAL)) {
                     val pct = ((value ?: 0.0) / p.stepGoal * 100).toInt()
-                    Text("· $pct%", fontSize = 12.sp, color = Red, fontWeight = FontWeight.Normal)
+                    FitText("· $pct%", fontSize = 12.sp, color = Red, fontWeight = FontWeight.Normal)
                 }
             }
         }
@@ -636,22 +643,22 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(w.metric.label, style = MaterialTheme.typography.titleMedium)
-                        Text(
+                        FitText(w.metric.label, style = MaterialTheme.typography.titleMedium)
+                        FitText(
                             if (w.metric == Metric.WEEKLY) "Last 7 days total" else "Past week overview",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
 
-                    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        FitText(
                             if (loading && value == null) "···" else valueText(value, w.metric, p.imperial),
                             fontSize = 32.sp,
                             fontWeight = FontWeight.Normal,
                             maxLines = 1
                         )
-                        Text(
+                        FitText(
                             if (w.metric == Metric.DISTANCE && p.imperial) "mi" else w.metric.unit,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -689,20 +696,20 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(Modifier.weight(0.35f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(
+                    FitText(
                         w.metric.label,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1
                     )
-                    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text(
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                        FitText(
                             if (loading && value == null) "···" else valueText(value, w.metric, p.imperial),
                             fontSize = 20.sp,
                             fontWeight = FontWeight.Normal,
                             maxLines = 1
                         )
-                        Text(
+                        FitText(
                             if (w.metric == Metric.DISTANCE && p.imperial) "mi" else w.metric.unit,
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -723,7 +730,7 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
                 Box(Modifier.weight(0.2f), contentAlignment = Alignment.CenterEnd) {
                     if (w.showGoal && w.metric in setOf(Metric.STEPS, Metric.GOAL)) {
                         val pct = ((value ?: 0.0) / p.stepGoal * 100).toInt()
-                        Text("$pct%", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Red)
+                        FitText("$pct%", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Red)
                     } else {
                         Box(Modifier.size(6.dp).background(Red, CircleShape))
                     }
@@ -733,23 +740,26 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
     }
 }
 
-@Composable private fun GoalsWidget(w: Widget,p: Preferences,days: List<DayData>) {
-    val goals=p.enabledGoals.intersect(Goals.available(p.mode)).toList()
-    BoxWithConstraints(Modifier.fillMaxSize().clip(w.shape.outline()).background(MaterialTheme.colorScheme.surface),contentAlignment=Alignment.Center) {
-        val small=maxHeight<100.dp || maxWidth<150.dp
-        val inset=if(w.shape==WidgetShape.CIRCLE) maxWidth*.15f else 10.dp
-        val goalWidth=((maxWidth-inset*2-12.dp*(goals.size-1))/goals.size.coerceAtLeast(1)).coerceIn(48.dp,if(small) 68.dp else 88.dp)
-        Row(Modifier.fillMaxWidth().padding(horizontal=inset).horizontalScroll(rememberScrollState(),enabled=!LocalWidgetEditing.current),horizontalArrangement=Arrangement.spacedBy(12.dp)) {
-            goals.forEach { metric ->
-                val value=Goals.value(metric,days,LocalDate.now())
-                val target=Goals.target(metric,p)
-                Column(Modifier.width(goalWidth),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(3.dp)) {
-                    if(!small) Box(contentAlignment=Alignment.Center) { DotRing((value ?: 0.0)/target,Modifier.size(48.dp));Text(if(value==null) "—" else "${(value/target*100).toInt()}%",style=MaterialTheme.typography.labelSmall) }
-                    Text(metric.label,style=MaterialTheme.typography.labelSmall,maxLines=1)
-                    Text("${number(value)} / ${number(target)}",style=MaterialTheme.typography.labelSmall,maxLines=1)
-                    if(small) LinearProgressIndicator(progress={((value ?: 0.0)/target).toFloat().coerceIn(0f,1f)},modifier=Modifier.fillMaxWidth(),color=Red)
-                }
-            }
-        }
-    }
+@Composable private fun GoalsWidget(w:Widget,p:Preferences,days:List<DayData>) {
+ val goals=p.enabledGoals.intersect(Goals.available(p.mode)).toList()
+ BoxWithConstraints(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface,w.shape.outline()),contentAlignment=Alignment.Center) {
+ val circle=w.shape==WidgetShape.CIRCLE
+ val safe=if(circle) minOf(maxWidth,maxHeight)*.70f else maxWidth-20.dp
+ val compact=maxHeight<100.dp || safe<150.dp
+ val availableHeight=if(circle)safe.value else maxHeight.value-12
+ val rowHeight=LocalDensity.current.fontScale*48+6
+ val possible=(availableHeight/rowHeight).toInt().coerceIn(1,5)
+ val capacity=if(possible<goals.size)((availableHeight-LocalDensity.current.fontScale*20)/rowHeight).toInt().coerceIn(1,5) else possible
+ val visible=goals.take(capacity)
+ Column(Modifier.width(safe).heightIn(max=if(circle)safe else maxHeight-12.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center) {
+ visible.forEach{m->val value=Goals.value(m,days,LocalDate.now());val target=Goals.target(m,p)
+ Row(Modifier.fillMaxWidth().padding(vertical=2.dp),verticalAlignment=Alignment.CenterVertically){
+ Column(Modifier.weight(1f)){FitText(m.label,style=MaterialTheme.typography.labelSmall);FitText("${valueText(value,m,p.imperial)} ${if(m==Metric.SLEEP) "" else if(m==Metric.DISTANCE&&p.imperial) "mi" else m.unit}",style=MaterialTheme.typography.labelSmall);FitText("of ${valueText(target,m,p.imperial)} ${if(m==Metric.SLEEP) "" else if(m==Metric.DISTANCE&&p.imperial) "mi" else m.unit}",style=MaterialTheme.typography.labelSmall)}
+ if(!compact)DotRing((value ?: 0.0)/target,Modifier.size(30.dp))
+ }
+ LinearProgressIndicator(progress={((value ?: 0.0)/target).toFloat().coerceIn(0f,1f)},modifier=Modifier.fillMaxWidth().height(2.dp),color=Red)
+ }
+ if(visible.size<goals.size)FitText("+${goals.size-visible.size} goals · Settings",style=MaterialTheme.typography.labelSmall)
+ }
+ }
 }

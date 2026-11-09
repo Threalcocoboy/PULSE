@@ -256,6 +256,7 @@ import kotlin.math.roundToInt
         }
     }
 
+    if(day?.sleepStart!=null && day.sleepEnd!=null) Text("${day.sleepStart.atZone(java.time.ZoneId.systemDefault()).format(java.time.format.DateTimeFormatter.ofPattern("d MMM HH:mm"))} — ${day.sleepEnd.atZone(java.time.ZoneId.systemDefault()).format(java.time.format.DateTimeFormatter.ofPattern("d MMM HH:mm"))}",style=MaterialTheme.typography.bodySmall)
     // Sleep Stages Breakdown (Honest data presentation)
     if (day?.sleepStages?.isNotEmpty() == true) {
         PulseCard(Modifier.fillMaxWidth()) {
@@ -492,7 +493,7 @@ import kotlin.math.roundToInt
                     fontSize = 44.sp,
                     fontWeight = FontWeight.Normal
                 )
-                Label("ms (rMSSD) · overnight average")
+                Label(if(snapshot.mode==DataMode.HEALTH_CONNECT)"ms (rMSSD) · recorded daily average" else "ms (rMSSD) · overnight average")
             }
             Box(
                 Modifier
@@ -753,7 +754,7 @@ import kotlin.math.roundToInt
                     fontSize = 42.sp,
                     fontWeight = FontWeight.Normal
                 )
-                Label("minutes · moderate & vigorous activity")
+                Label(if(snapshot.mode==DataMode.HEALTH_CONNECT)"minutes · recorded exercise duration" else "minutes · moderate & vigorous activity")
             }
             Box(Modifier.size(60.dp), contentAlignment = Alignment.Center) {
                 DotRing((value ?: 0.0) / dailyTarget, Modifier.fillMaxSize())
