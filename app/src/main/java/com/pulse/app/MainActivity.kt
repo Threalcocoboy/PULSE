@@ -14,7 +14,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.*
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -30,7 +30,8 @@ class MainActivity : ComponentActivity() {
     private var coldLaunch=false
     override fun onCreate(savedInstanceState: Bundle?) {
         coldLaunch=savedInstanceState==null&&!processOpened;processOpened=true
-        super.onCreate(savedInstanceState); enableEdgeToEdge(statusBarStyle=SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),navigationBarStyle=SystemBarStyle.dark(android.graphics.Color.TRANSPARENT))
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge(navigationBarStyle = SystemBarStyle.auto(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT))
         if(android.os.Build.VERSION.SDK_INT>=29) window.isNavigationBarContrastEnforced=false
         setContent {
             val vm: PulseViewModel=viewModel()
@@ -38,13 +39,15 @@ class MainActivity : ComponentActivity() {
             val ready by vm.ready.collectAsStateWithLifecycle()
             val setupSnapshot by vm.snapshot.collectAsStateWithLifecycle()
             val systemMotion=Settings.Global.getFloat(contentResolver,Settings.Global.ANIMATOR_DURATION_SCALE,1f)>0
-            val systemDark=androidx.compose.foundation.isSystemInDarkTheme()
-            SideEffect {
-                val light=when(p.theme){"LIGHT"->true;"SYSTEM"->!systemDark;else->false}
-                WindowCompat.getInsetsController(window,window.decorView).apply {isAppearanceLightStatusBars=light;isAppearanceLightNavigationBars=light}
-            }
             CompositionLocalProvider(LocalColdLaunch provides coldLaunch) {
             PulseTheme(p.copy(animations=p.animations && systemMotion)) {
+                val lightSurface = MaterialTheme.colorScheme.background.luminance() > .5f
+                SideEffect {
+                    WindowCompat.getInsetsController(window, window.decorView).apply {
+                        isAppearanceLightStatusBars = lightSurface
+                        isAppearanceLightNavigationBars = lightSurface
+                    }
+                }
                 Surface(Modifier.fillMaxSize(),color=MaterialTheme.colorScheme.background) {
                     val permissionLauncher=rememberLauncherForActivityResult(PermissionController.createRequestPermissionResultContract()) { vm.refresh() }
                     val connect: ()->Unit = {
@@ -92,7 +95,7 @@ class MainActivity : ComponentActivity() {
             vm.edit(false);nav.navigate(route){popUpTo(nav.graph.findStartDestination().id){saveState=true};launchSingleTop=true;restoreState=true}
         }
     }) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding),contentAlignment=Alignment.TopCenter) {
+        Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding),contentAlignment=Alignment.TopCenter) {
             NavHost(nav,startDestination="home",modifier=Modifier.widthIn(max=680.dp).fillMaxSize(),
                 enterTransition={fadeIn(tween(if(motion) 180 else 0))+slideInHorizontally(tween(if(motion) 180 else 0)){it/24}},
                 exitTransition={fadeOut(tween(if(motion) 140 else 0))},

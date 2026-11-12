@@ -3,9 +3,31 @@ package com.pulse.app.core
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.UUID
+import java.text.NumberFormat
 
 enum class ChallengeTracking { AUTOMATIC, CHECKBOX, NUMERIC }
-enum class ChallengeRule { FLEXIBLE, STREAK, CUMULATIVE, ONE_TIME }
+enum class ChallengeRule {
+    FLEXIBLE, STREAK, CUMULATIVE, ONE_TIME;
+
+    val countsDays: Boolean get() = this == FLEXIBLE || this == STREAK
+}
+
+enum class ChallengeIssue(val message: String) {
+    NAME("Enter a challenge name."),
+    CATEGORY("Enter a category."),
+
+    METRIC("Choose a supported health metric."),
+    UNIT("Enter a unit."),
+    SLEEP_RULE("Choose a rule with a daily sleep goal."),
+    TARGET("Enter a number greater than zero."),
+    DURATION("Choose a duration from 1 to 366 days."),
+    REQUIRED_DAYS("Choose a number from 1 to the challenge duration."),
+    START_DATE("Choose today or a future date.")
+}
+
+fun formatChallengeAmount(value: Double): String = NumberFormat.getNumberInstance().apply {
+    maximumFractionDigits = 340
+}.format(value)
 enum class ChallengeStatus { SCHEDULED, ACTIVE, PAUSED, AWAITING_DATA, COMPLETED, EXPIRED, ARCHIVED }
 data class ChallengeEvent(val id: String = UUID.randomUUID().toString(), val date: LocalDate, val amount: Double)
 data class PersonalChallenge(
@@ -19,28 +41,48 @@ data class PersonalChallenge(
     val progress: Double = 0.0, val completed: LocalDate? = null, val rewardAcknowledged: Boolean = false
 ) {
     val end: LocalDate get() = start.plusDays(duration - 1L)
-    val goal: Double get() = if(rule in setOf(ChallengeRule.FLEXIBLE, ChallengeRule.STREAK)) requiredDays.toDouble() else target
+    val goal: Double get() = if (rule.countsDays) requiredDays.toDouble() else target
     val rewardId: String get() = "challenge_$id"
-    fun validation(): String? = when {
-        name.isBlank() -> "Enter a challenge name."
-        category.isBlank() -> "Enter a category."
-        !target.isFinite() || target <= 0 -> "Target must be a positive number."
-        duration !in 1..366 -> "Duration must be 1–366 days."
-        rule in setOf(ChallengeRule.FLEXIBLE, ChallengeRule.STREAK) && requiredDays !in 1..duration -> "Successful days must be between 1 and the duration."
-        tracking == ChallengeTracking.AUTOMATIC && metric !in ChallengeEvaluator.metrics -> "Choose a supported health metric."
-        tracking == ChallengeTracking.AUTOMATIC && metric == Metric.SLEEP && rule == ChallengeRule.CUMULATIVE -> "Use a daily or one-time sleep target."
-        unit.isBlank() -> "Enter a unit."
-        else -> null
+
+    fun validationIssues(): List<ChallengeIssue> = buildList {
+        if (name.isBlank()) add(ChallengeIssue.NAME)
+        if (category.isBlank()) add(ChallengeIssue.CATEGORY)
+        if (tracking == ChallengeTracking.AUTOMATIC && metric !in ChallengeEvaluator.metrics) add(ChallengeIssue.METRIC)
+        if (unit.isBlank()) add(ChallengeIssue.UNIT)
+        if (tracking == ChallengeTracking.AUTOMATIC && metric == Metric.SLEEP && rule == ChallengeRule.CUMULATIVE) add(ChallengeIssue.SLEEP_RULE)
+        if (!target.isFinite() || target <= 0) add(ChallengeIssue.TARGET)
+        if (duration !in 1..366) add(ChallengeIssue.DURATION)
+        if (rule.countsDays && requiredDays !in 1..duration) add(ChallengeIssue.REQUIRED_DAYS)
     }
-    fun summary(): String = when(rule) {
-        ChallengeRule.FLEXIBLE -> "At least $target $unit on $requiredDays of $duration days"
-        ChallengeRule.STREAK -> "At least $target $unit on $requiredDays consecutive days"
-        ChallengeRule.CUMULATIVE -> "Accumulate $target $unit in $duration days"
-        ChallengeRule.ONE_TIME -> "Reach $target $unit on one day within $duration days"
+
+    fun validation(): String? = validationIssues().firstOrNull()?.message
+
+    fun summary(): String {
+        val amount = formatChallengeAmount(target)
+        val quantity = if (target == 1.0) {
+            when (unit) {
+                "times" -> "1 time"
+                "pages" -> "1 page"
+                "minutes" -> "1 minute"
+                "glasses" -> "1 glass"
+                "steps" -> "1 step"
+                else -> "1 $unit"
+            }
+        } else "$amount $unit"
+        val period = if (duration == 1) "1 day" else "$duration days"
+        val days = if (requiredDays == 1) "1 day" else "$requiredDays days"
+        return when (rule) {
+            ChallengeRule.FLEXIBLE -> "Reach $quantity on $days out of $period."
+            ChallengeRule.STREAK -> if (requiredDays == 1) "Reach $quantity on one day within $period."
+                else "Reach $quantity on $requiredDays days in a row within $period."
+            ChallengeRule.CUMULATIVE -> if (tracking == ChallengeTracking.CHECKBOX && unit == "times")
+                "Check off $quantity within $period." else "Record a total of $quantity within $period."
+            ChallengeRule.ONE_TIME -> "Reach $quantity on a single day within $period."
+        }
     }
     fun reward() = UserAchievement(AchievementDefinition(rewardId, AchievementCategory.SPECIAL, name,
-        "Challenge reward · $category", summary(), goal, if(rule in setOf(ChallengeRule.STREAK, ChallengeRule.FLEXIBLE)) "days" else unit,
-        icon, category), progress, completed != null, completed, "$progress / $goal")
+        "Challenge reward · $category", summary(), goal, if (rule.countsDays) "days" else unit,
+        icon, category), progress, completed != null, completed, "${formatChallengeAmount(progress)} / ${formatChallengeAmount(goal)}")
 }
 
 /** Uses provider-deduplicated daily measurements; unknown days remain unknown indefinitely.

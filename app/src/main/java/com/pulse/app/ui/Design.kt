@@ -86,7 +86,46 @@ fun valueText(value: Double?, metric: Metric, imperial: Boolean=false): String {
         val s=size.minDimension; val stroke=Stroke(s*0.065f,cap=StrokeCap.Round,join=StrokeJoin.Round)
         fun line(x1: Float,y1: Float,x2: Float,y2: Float) { drawLine(color,Offset(x1*s,y1*s),Offset(x2*s,y2*s),s*0.065f,StrokeCap.Round) }
         when(name) {
-            "moon" -> { drawArc(color,55f,285f,false,Offset(s*.18f,s*.12f),Size(s*.65f,s*.75f),style=stroke);line(.7f,.13f,.52f,.45f);line(.52f,.45f,.8f,.7f) }
+            "moon" -> {
+                val crescent = Path().apply {
+                    moveTo(.6f*s,.13f*s)
+                    cubicTo(.2f*s,.07f*s,.06f*s,.47f*s,.23f*s,.72f*s)
+                    cubicTo(.38f*s,.94f*s,.74f*s,.92f*s,.87f*s,.66f*s)
+                    cubicTo(.51f*s,.73f*s,.38f*s,.36f*s,.6f*s,.13f*s)
+                    close()
+                }
+                drawPath(crescent,color,style=stroke)
+            }
+            "calendar" -> {
+                drawRoundRect(color,Offset(.15f*s,.22f*s),Size(.7f*s,.63f*s),CornerRadius(.07f*s),style=stroke)
+                line(.15f,.41f,.85f,.41f)
+                line(.33f,.12f,.33f,.3f)
+                line(.67f,.12f,.67f,.3f)
+                drawCircle(color,.055f*s,Offset(.5f*s,.63f*s))
+            }
+            "stopwatch" -> {
+                drawCircle(color,.3f*s,Offset(.5f*s,.57f*s),style=stroke)
+                line(.5f,.14f,.5f,.26f)
+                line(.39f,.14f,.61f,.14f)
+                line(.5f,.57f,.5f,.39f)
+                line(.5f,.57f,.64f,.63f)
+                line(.72f,.29f,.8f,.22f)
+            }
+            "dumbbell" -> {
+                line(.35f,.5f,.65f,.5f)
+                drawRoundRect(color,Offset(.19f*s,.28f*s),Size(.16f*s,.44f*s),CornerRadius(.04f*s),style=stroke)
+                drawRoundRect(color,Offset(.65f*s,.28f*s),Size(.16f*s,.44f*s),CornerRadius(.04f*s),style=stroke)
+                line(.09f,.5f,.19f,.5f)
+                line(.81f,.5f,.91f,.5f)
+            }
+            "check" -> { line(.2f,.5f,.42f,.72f);line(.42f,.72f,.83f,.28f) }
+            "pause" -> { line(.34f,.2f,.34f,.8f);line(.66f,.2f,.66f,.8f) }
+            "play" -> { line(.32f,.19f,.32f,.81f);line(.32f,.81f,.78f,.5f);line(.78f,.5f,.32f,.19f) }
+            "archive" -> {
+                drawRoundRect(color,Offset(.13f*s,.19f*s),Size(.74f*s,.22f*s),CornerRadius(.04f*s),style=stroke)
+                line(.2f,.41f,.2f,.83f);line(.2f,.83f,.8f,.83f);line(.8f,.83f,.8f,.41f)
+                line(.4f,.56f,.6f,.56f)
+            }
             "foot" -> { drawOval(color,Offset(s*.2f,s*.15f),Size(s*.2f,s*.42f),style=stroke);drawOval(color,Offset(s*.6f,s*.35f),Size(s*.2f,s*.42f),style=stroke);drawCircle(color,s*.06f,Offset(s*.3f,s*.75f));drawCircle(color,s*.06f,Offset(s*.7f,s*.9f)) }
             "heart" -> { val path=Path().apply{moveTo(.5f*s,.85f*s);cubicTo(-.2f*s,.4f*s,.25f*s,-.1f*s,.5f*s,.3f*s);cubicTo(.75f*s,-.1f*s,1.2f*s,.4f*s,.5f*s,.85f*s)};drawPath(path,color,style=stroke) }
             "book" -> { line(.5f,.2f,.5f,.85f);line(.12f,.15f,.5f,.25f);line(.88f,.15f,.5f,.25f);line(.12f,.15f,.12f,.75f);line(.88f,.15f,.88f,.75f);line(.12f,.75f,.5f,.85f);line(.88f,.75f,.5f,.85f) }

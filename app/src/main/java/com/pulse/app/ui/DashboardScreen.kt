@@ -53,7 +53,7 @@ import kotlin.math.abs
     RefreshSurface(snapshot.loading,{vm.refresh()},!editing,showIndicator=false) {
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.reveal().fillMaxWidth().padding(start=PulseTokens.screenPadding,end=8.dp,top=4.dp,bottom=4.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween) {
-            if(editing) Text("PULSE Studio",style=MaterialTheme.typography.titleMedium) else BrandHeader(snapshot.loading,Modifier.weight(1f))
+            if(editing) Text("PULSE Studio",style=MaterialTheme.typography.titleMedium) else BrandHeader(Modifier.weight(1f))
             Row {if(editing)SmallAction("Done"){vm.edit(false)}else {IconAction("edit","Edit dashboard"){vm.edit(true)};IconAction("settings","Settings",onClick=settings)}}
         }
         if(editing) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal=8.dp),verticalAlignment=Alignment.CenterVertically) {
