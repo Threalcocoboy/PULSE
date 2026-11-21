@@ -34,12 +34,14 @@ internal class DistributionUpdates(private val context: Context) {
     private var throttledUntil = 0L
     private var ready: ReleaseApk? = null
 
-    suspend fun check(): PulseRelease? = withContext(Dispatchers.IO) {
+    suspend fun check(metadataOnly: Boolean = false): PulseRelease? = withContext(Dispatchers.IO) {
         if (System.currentTimeMillis() < throttledUntil) throw UpdateFailure("GitHub has limited update checks. Try again later.")
         // This directory is reserved for this updater, and the installer never uses partial files.
-        directory.listFiles()?.forEach { it.delete() }
-        ready = null
-        selected = null
+        if (!metadataOnly) {
+            directory.listFiles()?.forEach { it.delete() }
+            ready = null
+            selected = null
+        }
         val connection = connect(URI("https://api.github.com/repos/THREALCOCOBOY/PULSE/releases/latest"), metadata = true)
         try {
             when (connection.responseCode) {
@@ -70,8 +72,9 @@ internal class DistributionUpdates(private val context: Context) {
                     output.write(buffer, 0, count)
                 }
             }
-            selected = parseRelease(output.toString(Charsets.UTF_8.name()), BuildConfig.VERSION_CODE.toLong(), Build.VERSION.SDK_INT)
-            selected?.release
+            val latest = parseRelease(output.toString(Charsets.UTF_8.name()), BuildConfig.VERSION_CODE.toLong(), Build.VERSION.SDK_INT)
+            if (!metadataOnly) selected = latest
+            latest?.release
         } catch (_: org.json.JSONException) {
             throw UpdateFailure("GitHub returned unreadable release metadata.")
         } finally {

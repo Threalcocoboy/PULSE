@@ -1,5 +1,6 @@
 package com.pulse.app.ui
 
+import android.Manifest
 import android.content.Intent
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -18,6 +19,9 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.pulse.app.BuildConfig
 import com.pulse.app.update.*
 import kotlinx.coroutines.Dispatchers
@@ -176,13 +180,46 @@ internal fun UpdateScreen(updates: PulseUpdates, back: () -> Unit) {
             if (updates.supportsAutomatic) {
                 HorizontalDivider()
                 SettingToggle("Check automatically", automatic, updates::setAutomatic)
-                Text("Checks GitHub at most once a day when you open PULSE. Downloads require your approval.",
+                Text("Checks GitHub when you open PULSE and periodically in the background. Downloads require your approval.",
                     style = MaterialTheme.typography.bodyMedium)
+                if (automatic) UpdateNotificationSetting(updates::checkOnOpen)
             }
         }
         if (updates.github && current !is UpdateState.Available) {
             SmallAction("Open GitHub Releases") {
                 runCatching { links.openUri("$PULSE_REPOSITORY/releases") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun UpdateNotificationSetting(refresh: () -> Unit) {
+    val context = LocalContext.current
+    val owner = LocalLifecycleOwner.current
+    val preferences = remember(context) { UpdateAlerts.preferences(context) }
+    var allowed by remember(context) { mutableStateOf(UpdateAlerts.allowed(context)) }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        allowed = UpdateAlerts.allowed(context)
+        refresh()
+    }
+    DisposableEffect(owner, context) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) allowed = UpdateAlerts.allowed(context)
+        }
+        owner.lifecycle.addObserver(observer)
+        onDispose { owner.lifecycle.removeObserver(observer) }
+    }
+    if (!allowed) {
+        Text("Allow update notifications to hear about new versions while PULSE is closed.",
+            style = MaterialTheme.typography.bodyMedium)
+        SmallAction("Enable update notifications") {
+            UpdateAlerts.prepareChannel(context)
+            if (UpdateAlerts.runtimePermissionMissing(context) && !preferences.getBoolean("updatePermissionAsked", false)) {
+                preferences.edit().putBoolean("updatePermissionAsked", true).apply()
+                launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            } else {
+                UpdateAlerts.openSettings(context)
             }
         }
     }

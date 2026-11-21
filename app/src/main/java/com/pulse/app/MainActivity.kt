@@ -35,6 +35,7 @@ import com.pulse.app.integration.googlehealth.GoogleHealthPrompt
 import com.pulse.app.integration.googlehealth.GoogleHealthAvailability
 import com.pulse.app.update.PULSE_REPOSITORY
 import com.pulse.app.update.PulseUpdates
+import com.pulse.app.update.UpdateAlerts
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import com.pulse.app.ui.*
@@ -79,6 +80,7 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         leftApp = false
         vm.refreshGoalNotification()
+        updates.checkOnOpen()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -89,6 +91,7 @@ class MainActivity : ComponentActivity() {
             showIntro = true
         }
         if (intent.action == LiveGoalNotifications.OPEN_GOAL) readGoalRequest(intent)
+        if (intent.action == UpdateAlerts.OPEN_UPDATES) updates.openFromNotification()
     }
     private fun readGoalRequest(intent: Intent?) {
         goalRequest.value = intent?.takeIf { it.action == LiveGoalNotifications.OPEN_GOAL }
@@ -117,6 +120,7 @@ class MainActivity : ComponentActivity() {
         showIntro = savedInstanceState == null
         if (intent?.action == ProgressNotifications.OPEN_DASHBOARD) dashboardRequest.value++
         if (savedInstanceState == null) readGoalRequest(intent)
+        if (savedInstanceState == null && intent?.action == UpdateAlerts.OPEN_UPDATES) updates.openFromNotification()
         enableEdgeToEdge(navigationBarStyle = SystemBarStyle.auto(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT))
         if(android.os.Build.VERSION.SDK_INT>=29) window.isNavigationBarContrastEnforced=false
         setContent {
@@ -222,15 +226,25 @@ class MainActivity : ComponentActivity() {
     LaunchedEffect(current, tab) { if (isTab && tab == "home") vm.refreshIfNeeded() }
     val message by vm.message.collectAsStateWithLifecycle()
     val snackbar=remember { SnackbarHostState() }
-    val updateScope = rememberCoroutineScope()
-    LaunchedEffect(updates) {
-        updates.check(automatically = true) { release ->
-            updateScope.launch {
-                if (snackbar.showSnackbar("PULSE ${release.version} is available", "View", withDismissAction = true,
-                        duration = SnackbarDuration.Long) == SnackbarResult.ActionPerformed) openPage("updates")
-                else updates.dismiss(release)
-            }
+    val updateRequest by updates.openRequested.collectAsStateWithLifecycle()
+    val updateOffer by updates.popup.collectAsStateWithLifecycle()
+    LaunchedEffect(updateRequest) {
+        if (updateRequest) {
+            openPage("updates")
+            updates.consumeOpenRequest()
         }
+    }
+    if (current != "updates" && !updateRequest) updateOffer?.let { offer ->
+        AlertDialog(
+            onDismissRequest = { updates.dismissOffer(offer.code) },
+            title = { Text("PULSE ${offer.version} is available") },
+            text = { Text("Open Updates to review what's new and install the update.") },
+            confirmButton = { TextButton({
+                updates.dismissOffer(offer.code)
+                openPage("updates")
+            }) { Text("View update") } },
+            dismissButton = { TextButton({ updates.dismissOffer(offer.code) }) { Text("Later") } }
+        )
     }
     LaunchedEffect(message) { message?.let { snackbar.showSnackbar(it); vm.clearMessage() } }
     BackHandler(isTab && tab != "home") { selectTab("home") }

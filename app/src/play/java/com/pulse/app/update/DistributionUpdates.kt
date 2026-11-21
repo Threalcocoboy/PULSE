@@ -22,16 +22,17 @@ internal class DistributionUpdates(context: Context) {
     val downloadLabel = "Continue in Google Play"
     private var selected: AppUpdateInfo? = null
 
-    suspend fun check(): PulseRelease? {
+    suspend fun check(metadataOnly: Boolean = false): PulseRelease? {
         val info = suspendCancellableCoroutine { continuation ->
             manager.appUpdateInfo.addOnSuccessListener { continuation.resume(it) }
                 .addOnFailureListener { continuation.resumeWithException(it) }
         }
-        selected = info.takeIf {
+        val latest = info.takeIf {
             it.updateAvailability() in setOf(UpdateAvailability.UPDATE_AVAILABLE, UpdateAvailability.DEVELOPER_TRIGGERED_UPDATE_IN_PROGRESS) &&
                 it.isUpdateTypeAllowed(AppUpdateType.IMMEDIATE) && it.availableVersionCode() > BuildConfig.VERSION_CODE
         }
-        return selected?.availableVersionCode()?.let { PulseRelease("Build $it", it.toLong(), "") }
+        if (!metadataOnly) selected = latest
+        return latest?.availableVersionCode()?.let { PulseRelease("Build $it", it.toLong(), "") }
     }
 
     suspend fun prepare(release: PulseRelease, playLauncher: ActivityResultLauncher<IntentSenderRequest>, progress: (Int) -> Unit) {

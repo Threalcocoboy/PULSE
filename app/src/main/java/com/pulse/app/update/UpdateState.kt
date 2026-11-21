@@ -34,10 +34,9 @@ internal const val PULSE_MAINTAINER = "https://github.com/Threalcocoboy"
 
 internal class PulseUpdates(application: Application) : AndroidViewModel(application) {
     private val distribution = DistributionUpdates(application)
-    private val preferences = application.getSharedPreferences("pulse_updates", 0)
     private val status = MutableStateFlow<UpdateState>(UpdateState.Idle)
     val state = status.asStateFlow()
-    private val auto = MutableStateFlow(preferences.getBoolean("automatic", false))
+    private val auto = MutableStateFlow(UpdateAlerts.enabled(application))
     val automatic = auto.asStateFlow()
     val supportsAutomatic = distribution.supportsAutomatic
     val available = distribution.available
@@ -47,27 +46,56 @@ internal class PulseUpdates(application: Application) : AndroidViewModel(applica
     val installationMessage = installNotice.asStateFlow()
     private var task: Job? = null
     private var lastManualAttempt: Long? = null
+    private var automaticCheck: Job? = null
+    private val offer = MutableStateFlow<UpdateOffer?>(null)
+    val popup = offer.asStateFlow()
+    private val open = MutableStateFlow(false)
+    val openRequested = open.asStateFlow()
+
+    init {
+        if (supportsAutomatic) UpdateAlerts.schedule(application, available && auto.value)
+    }
 
     fun setAutomatic(enabled: Boolean) {
         auto.value = enabled
-        preferences.edit().putBoolean("automatic", enabled).apply()
+        val context = getApplication<Application>()
+        UpdateAlerts.preferences(context).edit().putBoolean("automatic", enabled).apply()
+        UpdateAlerts.schedule(context, supportsAutomatic && available && enabled)
+        if (enabled) checkOnOpen() else offer.value = null
     }
 
-    fun check(automatically: Boolean = false, found: (PulseRelease) -> Unit = {}) {
+    fun checkOnOpen() {
+        if (!available || !supportsAutomatic || !auto.value || automaticCheck?.isActive == true) return
+        val context = getApplication<Application>()
+        if (!open.value) offer.value = UpdateAlerts.pending(context)
+        automaticCheck = viewModelScope.launch {
+            UpdateAlerts.check(context)
+            if (!open.value) offer.value = UpdateAlerts.pending(context)
+        }
+    }
+
+    fun dismissOffer(code: Long) {
+        UpdateAlerts.dismiss(getApplication(), code)
+        if (offer.value?.code == code) offer.value = null
+    }
+
+    fun openFromNotification() {
+        UpdateAlerts.pending(getApplication())?.let { dismissOffer(it.code) }
+        open.value = true
+    }
+
+    fun consumeOpenRequest() { open.value = false }
+
+    fun check() {
         if (!available || task?.isActive == true || status.value is UpdateState.Ready) return
-        if (automatically && (!supportsAutomatic || !auto.value)) return
         val now = System.currentTimeMillis()
-        val lastAutomaticAttempt = preferences.getLong("lastAutomaticAttempt", 0)
-        if (automatically && now >= lastAutomaticAttempt && now - lastAutomaticAttempt < 24 * 60 * 60 * 1000L) return
-        if (!automatically && lastManualAttempt?.let { now - it in 0..29_999 } == true) return
+        if (lastManualAttempt?.let { now - it in 0..29_999 } == true) return
         lastManualAttempt = now
-        if (supportsAutomatic) preferences.edit().putLong("lastAutomaticAttempt", now).apply()
         task = viewModelScope.launch {
             status.value = UpdateState.Checking
             try {
                 val release = distribution.check()
                 status.value = if (release == null) UpdateState.Current else UpdateState.Available(release)
-                if (automatically && release != null && release.code > preferences.getLong("dismissedCode", 0)) found(release)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: UpdateFailure) {
@@ -102,7 +130,7 @@ internal class PulseUpdates(application: Application) : AndroidViewModel(applica
     }
 
     fun dismiss(release: PulseRelease) {
-        preferences.edit().putLong("dismissedCode", release.code).apply()
+        dismissOffer(release.code)
     }
 
     fun install(launch: (Intent) -> Unit) {
