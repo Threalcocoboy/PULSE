@@ -29,6 +29,7 @@ import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.health.connect.client.PermissionController
 import com.pulse.app.core.*
 import com.pulse.app.integration.HealthConnectRepository
+import com.pulse.app.integration.LiveGoalNotifications
 import com.pulse.app.integration.ProgressNotifications
 import com.pulse.app.integration.googlehealth.GoogleHealthPrompt
 import com.pulse.app.integration.googlehealth.GoogleHealthAvailability
@@ -51,6 +52,7 @@ class MainActivity : ComponentActivity() {
     companion object {private var processOpened=false}
     private var coldLaunch=false
     private val dashboardRequest = MutableStateFlow(0)
+    private val goalRequest = MutableStateFlow<String?>(null)
     private var showIntro by mutableStateOf(false)
     private var leftApp = false
     private var reopen = false
@@ -76,6 +78,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         leftApp = false
+        vm.refreshGoalNotification()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -85,6 +88,11 @@ class MainActivity : ComponentActivity() {
             dashboardRequest.value++
             showIntro = true
         }
+        if (intent.action == LiveGoalNotifications.OPEN_GOAL) readGoalRequest(intent)
+    }
+    private fun readGoalRequest(intent: Intent?) {
+        goalRequest.value = intent?.takeIf { it.action == LiveGoalNotifications.OPEN_GOAL }
+            ?.getStringExtra(LiveGoalNotifications.GOAL_ID)?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,80}")) }
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         coldLaunch=savedInstanceState==null&&!processOpened;processOpened=true
@@ -108,6 +116,7 @@ class MainActivity : ComponentActivity() {
         }
         showIntro = savedInstanceState == null
         if (intent?.action == ProgressNotifications.OPEN_DASHBOARD) dashboardRequest.value++
+        if (savedInstanceState == null) readGoalRequest(intent)
         enableEdgeToEdge(navigationBarStyle = SystemBarStyle.auto(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT))
         if(android.os.Build.VERSION.SDK_INT>=29) window.isNavigationBarContrastEnforced=false
         setContent {
@@ -147,7 +156,10 @@ class MainActivity : ComponentActivity() {
                         PulseSwap(p.onboarded, Modifier.fillMaxSize(), label = "Onboarding to Home", distance = 24) { onboarded ->
                             if (onboarded) {
                                 val openDashboard by dashboardRequest.collectAsStateWithLifecycle()
-                                PulseApp(vm, p, setupSnapshot, requestHealth, openDashboard, updates)
+                                val openGoal by goalRequest.collectAsStateWithLifecycle()
+                                PulseApp(vm, p, setupSnapshot, requestHealth, openDashboard, updates, openGoal) {
+                                    goalRequest.value = null
+                                }
                             } else Onboarding(p, setupSnapshot, vm) { requestHealth(HealthConnectRepository.permissions) }
                         }
                     }
@@ -160,7 +172,8 @@ class MainActivity : ComponentActivity() {
     }
 }
 @Composable internal fun PulseApp(vm: PulseViewModel,p: Preferences,snapshotRaw: HealthSnapshot,connect:(Set<String>)->Unit,openDashboard:Int,
-    updates: PulseUpdates = androidx.lifecycle.viewmodel.compose.viewModel()) {
+    updates: PulseUpdates = androidx.lifecycle.viewmodel.compose.viewModel(), openGoal: String? = null,
+    onGoalOpened: () -> Unit = {}) {
     val nav=rememberNavController()
     var tab by rememberSaveable { mutableStateOf("home") }
     var outgoingTab by remember { mutableStateOf<String?>(null) }
@@ -177,6 +190,13 @@ class MainActivity : ComponentActivity() {
             vm.edit(false)
             selectTab("home")
             nav.navigate("home") { popUpTo(nav.graph.findStartDestination().id); launchSingleTop = true }
+        }
+    }
+    LaunchedEffect(openGoal) {
+        openGoal?.let { id ->
+            vm.edit(false)
+            nav.navigate("goal/$id") { launchSingleTop = true }
+            onGoalOpened()
         }
     }
     val backstack by nav.currentBackStackEntryAsState()
@@ -263,6 +283,10 @@ class MainActivity : ComponentActivity() {
                 }
                 composable("settings/goals") {
                     SettingsScreen(vm,p,snapshot,connect,initialCategory = "Profile & Goals", openPage = ::openPage) { nav.popBackStack() }
+                }
+                composable("goal/{id}") { entry ->
+                    LiveGoalDetail(entry.arguments?.getString("id").orEmpty(), p, snapshot,
+                        { openPage("settings/goals") }) { nav.popBackStack() }
                 }
                 composable("settings/about") {
                     SettingsScreen(vm,p,snapshot,connect,initialCategory = "About PULSE", openPage = ::openPage) { nav.popBackStack() }

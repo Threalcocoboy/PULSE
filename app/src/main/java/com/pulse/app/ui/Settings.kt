@@ -108,7 +108,11 @@ internal val settingsCategories = listOf("Profile & Goals", "Devices & Data", "A
                 }
             }
             "Appearance"->{Label("COLOR THEME");listOf("DARK" to "Dark","LIGHT" to "Light","SYSTEM" to "Follow system").forEach{(key,title)->Row(Modifier.fillMaxWidth().heightIn(min=56.dp).clickable{vm.preferences{it.copy(theme=key)}},verticalAlignment=Alignment.CenterVertically){RadioButton(p.theme==key,{vm.preferences{it.copy(theme=key)}});Text(title)}};SettingToggle("Animations",p.animations){v->vm.preferences{it.copy(animations=v)}};SettingToggle("Haptic feedback",p.haptics){v->vm.preferences{it.copy(haptics=v)}};Text("System animation settings take precedence. Charts always include readable numeric summaries.",style=MaterialTheme.typography.bodySmall)}
-            "Notifications"->{NotificationSetup(p,snapshot,vm::preferences)}
+            "Notifications"->{
+                LiveGoalTrackingSettings(p, snapshot, vm::preferences, vm::refreshGoalNotification)
+                HorizontalDivider()
+                NotificationSetup(p,snapshot,vm::preferences)
+            }
             "Privacy & Data"->{
                 PulseCard {
                     Label("Private by design", color = Red)

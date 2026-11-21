@@ -64,7 +64,8 @@ data class Preferences(val onboarded: Boolean = false, val mode: DataMode = Data
     val setupSource: DataMode = DataMode.NONE, val sourceSetup: SetupStatus = SetupStatus.NOT_STARTED,
     val goalsSetup: SetupStatus = SetupStatus.NOT_STARTED, val notificationSetup: SetupStatus = SetupStatus.NOT_STARTED,
     val combineHealthConnect: Boolean = false, val providerPriority: Map<Metric, DataMode> = emptyMap(),
-    val weeklyActiveGoal: Int = 150, val personalGoals: List<PersonalGoal> = emptyList()) {
+    val weeklyActiveGoal: Int = 150, val personalGoals: List<PersonalGoal> = emptyList(),
+    val liveGoal: LiveGoalPreference = LiveGoalPreference()) {
     fun sanitized() = copy(progressNotifications = progressNotifications && mode != DataMode.NONE, displayName=displayName.filter { !it.isISOControl() }.trim().take(40), onboardingStep=onboardingStep.coerceIn(0, SetupStep.entries.lastIndex), notificationMetrics=notificationMetrics.intersect(setOf(Metric.STEPS,Metric.DISTANCE,Metric.ACTIVE,Metric.CALORIES,Metric.ACTIVE_CALORIES,Metric.FLOORS,Metric.HYDRATION,Metric.ACTIVITIES)),stepGoal = stepGoal.coerceIn(100, 100000), sleepGoal = sleepGoal.takeIf { it.isFinite() }?.coerceIn(1.0, 16.0) ?: 8.0,
         distanceGoal = distanceGoal.takeIf { it.isFinite() }?.coerceIn(.5,100.0) ?: 5.0,
         activeGoal = activeGoal.coerceIn(5,300), workoutGoal = workoutGoal.coerceIn(1,21),

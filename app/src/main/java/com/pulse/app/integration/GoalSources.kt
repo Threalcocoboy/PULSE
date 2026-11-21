@@ -18,6 +18,15 @@ internal object GoalSources {
     fun available(metric: GoalMetric, snapshot: HealthSnapshot, mode: DataMode): Boolean =
         mode != DataMode.NONE && snapshot.mode == mode && snapshot.access.verified && metric.source in snapshot.available
 
+    fun missingReadPermission(metric: GoalMetric, snapshot: HealthSnapshot, mode: DataMode): Boolean {
+        val applicable = setOfNotNull(mode, snapshot.secondary?.mode).intersect(providers(metric))
+        return applicable.any { provider ->
+            val grants = if (provider == mode) snapshot.granted else snapshot.secondary?.granted.orEmpty()
+            val required = capabilities[provider]?.get(metric.source).orEmpty()
+            required.isNotEmpty() && required.none { it in grants }
+        }
+    }
+
     fun availability(metric: GoalMetric, snapshot: HealthSnapshot, mode: DataMode): GoalAvailability {
         val providers = providers(metric)
         if (available(metric, snapshot, mode)) {
@@ -30,14 +39,10 @@ internal object GoalSources {
         if (supportedHere.isEmpty()) return GoalAvailability(providers, "Requires another source")
         if (snapshot.mode != mode || snapshot.loading) return GoalAvailability(supportedHere, "Checking access")
         val reads = snapshot.days.lastOrNull()?.readings?.get(metric.source)?.state
-        val missingPermission = supportedHere.any { provider ->
-            val grants = if (provider == mode) snapshot.granted else snapshot.secondary?.granted.orEmpty()
-            val required = capabilities[provider]?.get(metric.source).orEmpty()
-            required.isNotEmpty() && required.none { it in grants }
-        }
         val label = when {
             reads == DataState.UNSUPPORTED -> "Unavailable from this source"
-            reads == DataState.PERMISSION_DENIED || snapshot.access.verified && missingPermission -> "Read access needed"
+            reads == DataState.PERMISSION_DENIED ||
+                snapshot.access.verified && missingReadPermission(metric, snapshot, mode) -> "Read access needed"
             !snapshot.access.verified -> "Connect or review access"
             else -> "Unavailable from this source"
         }

@@ -54,6 +54,7 @@ class PulseViewModel(application: Application, private val saved: SavedStateHand
     private var awardScope=""
     private val awardMutex=kotlinx.coroutines.sync.Mutex()
     private val calendarDay=MutableStateFlow(LocalDate.now())
+    private val notificationRefresh = MutableStateFlow(0)
     private val _message=MutableStateFlow<String?>(null); val message=_message.asStateFlow()
     private var lastRefreshAttempt:java.time.Instant?=null
     private var syncJob: Job? = null
@@ -78,11 +79,19 @@ class PulseViewModel(application: Application, private val saved: SavedStateHand
             store.preferences.first(); _ready.value=true
         }
         viewModelScope.launch {
-            combine(preferences, snapshot, calendarDay, challenges) { p, data, _, items -> Triple(p, data, items) }
+            combine(preferences, snapshot, calendarDay, challenges, notificationRefresh) { p, data, _, items, _ -> Triple(p, data, items) }
                 .collect { (p, data, items) ->
                     HealthSyncWorker.schedule(application, p, data, items)
                     ProgressNotifications.publish(application, p, data)
                 }
+        }
+        viewModelScope.launch {
+            combine(ready, store.preferences, snapshot, calendarDay, notificationRefresh) { loaded, _, data, _, _ ->
+                data.takeIf { loaded }
+            }.filterNotNull().collectLatest { data ->
+                delay(500)
+                LiveGoalNotifications.publish(application, data)
+            }
         }
         viewModelScope.launch {
             store.preferences.map { it.mode }.distinctUntilChanged().collect { mode ->
@@ -126,6 +135,7 @@ class PulseViewModel(application: Application, private val saved: SavedStateHand
         }
     }
     fun edit(value: Boolean) { saved["editing"]=value }
+    internal fun refreshGoalNotification() { notificationRefresh.update { it + 1 } }
     fun preferences(transform: (Preferences)->Preferences) { viewModelScope.launch { try { store.update(transform) } catch(e: CancellationException) { throw e } catch(e: Exception) { _message.value="Could not save preferences. Please retry." } } }
     private fun history(mode: PulseMode) = modeHistories.getOrPut(mode.id) { LayoutHistory(mode.widgets) }
 

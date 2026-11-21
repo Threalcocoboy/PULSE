@@ -44,8 +44,8 @@ class ModesAndGoalsTest {
         DayData(monday.plusDays(offset), mapOf(metric to Reading(value, state)), complete = true)
 
     @Test fun goalsKeepLegacyValuesAndPersistAdvancedConfigurationsWithDeletionAndRestoration() {
-        val old = Preferences(stepGoal = 6800, enabledGoals = setOf(Metric.STEPS, Metric.WEEKLY_ACTIVE), weeklyActiveGoal = 200)
-        val v3 = PreferencesCodec.encode(old).substringBeforeLast('|').replaceFirst("v4|", "v3|")
+        val v3 = "v3|false|NONE|6800|8.0|DARK|true|true|true|false|5.0|30|3|STEPS,WEEKLY_ACTIVE|" +
+            "|false|0|false|STEPS,DISTANCE|NONE|NOT_STARTED|NOT_STARTED|NOT_STARTED|false||200"
         val prefs = PreferencesCodec.decode(v3)
         assertEquals(6800.0, Goals.indicator(Metric.STEPS, prefs)!!, 0.0)
         assertEquals(GoalCadence.WEEKLY, Goals.active(prefs).last().completionCadence)

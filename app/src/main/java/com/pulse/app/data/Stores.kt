@@ -36,21 +36,24 @@ class PreferenceStore internal constructor(private val store: DataStore<androidx
 }
 object PreferencesCodec {
     fun encode(p: Preferences) = p.sanitized().let {
-        listOf("v4", it.onboarded, it.mode.name, it.stepGoal, it.sleepGoal, it.theme, it.animations, it.haptics, it.insights,
+        listOf("v5", it.onboarded, it.mode.name, it.stepGoal, it.sleepGoal, it.theme, it.animations, it.haptics, it.insights,
             it.imperial, it.distanceGoal, it.activeGoal, it.workoutGoal, it.enabledGoals.joinToString(",") { goal -> goal.name },
             java.util.Base64.getUrlEncoder().encodeToString(it.displayName.toByteArray(Charsets.UTF_8)), it.introSeen,
             it.onboardingStep, it.progressNotifications, it.notificationMetrics.joinToString(",") { metric -> metric.name },
             it.setupSource.name, it.sourceSetup.name, it.goalsSetup.name, it.notificationSetup.name, it.combineHealthConnect,
             it.providerPriority.entries.sortedBy { entry -> entry.key.name }
                 .joinToString(",") { entry -> "${entry.key.name}=${entry.value.name}" }, it.weeklyActiveGoal,
-            PersonalGoalCodec.encode(it.personalGoals)).joinToString("|")
+            PersonalGoalCodec.encode(it.personalGoals), it.liveGoal.goalId.orEmpty(), it.liveGoal.enabled,
+            it.liveGoal.dismissed, it.liveGoal.hideOnLockScreen, it.liveGoal.token,
+            it.liveGoal.permissionRequested).joinToString("|")
     }
 
     fun decode(raw: String): Preferences = runCatching {
         val fields = raw.split('|')
         val legacy = fields[0] == "v1"
         require((legacy && fields.size in setOf(10, 14, 19)) || (fields[0] == "v2" && fields.size == 23) ||
-            (fields[0] == "v3" && fields.size in 25..26) || (fields[0] == "v4" && fields.size == 27))
+            (fields[0] == "v3" && fields.size in 25..26) || (fields[0] == "v4" && fields.size == 27) ||
+            (fields[0] == "v5" && fields.size == 33))
         val onboarded = fields[1].toBooleanStrict()
         val mode = DataMode.fromStored(fields[2])
         val oldStep = fields.getOrNull(16)?.toInt() ?: 0
@@ -81,7 +84,15 @@ object PreferencesCodec {
                 metric?.takeIf { provider in setOf(DataMode.HEALTH_CONNECT, DataMode.GOOGLE_HEALTH) }?.let { it to provider }
             }.toMap(),
             weeklyActiveGoal = fields.getOrNull(25)?.toIntOrNull() ?: 150,
-            personalGoals = PersonalGoalCodec.decode(fields.getOrNull(26).orEmpty())
+            personalGoals = PersonalGoalCodec.decode(fields.getOrNull(26).orEmpty()),
+            liveGoal = LiveGoalPreference(
+                goalId = fields.getOrNull(27)?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,80}")) },
+                enabled = fields.getOrNull(28)?.toBooleanStrictOrNull() == true,
+                dismissed = fields.getOrNull(29)?.toBooleanStrictOrNull() == true,
+                hideOnLockScreen = fields.getOrNull(30)?.toBooleanStrictOrNull() == true,
+                token = fields.getOrNull(31).orEmpty(),
+                permissionRequested = fields.getOrNull(32)?.toBooleanStrictOrNull() == true
+            )
         ).sanitized()
     }.getOrDefault(Preferences())
 }

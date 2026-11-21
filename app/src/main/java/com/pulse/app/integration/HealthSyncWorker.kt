@@ -19,6 +19,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
+import java.time.ZoneId
 import java.util.concurrent.TimeUnit
 
 internal class ProviderSync(private val context: Context, private val dao: HealthDao) {
@@ -91,6 +92,18 @@ class HealthSyncWorker(context: Context, params: WorkerParameters) : CoroutineWo
             !GoogleHealthAvailability.canConnect(initial.mode)) return Result.success()
         if (initial.mode == DataMode.HEALTH_CONNECT && !canReadHealthInBackground(applicationContext)) {
             ProgressNotifications.cancel(applicationContext)
+            val goal = LiveGoalNotifications.selected(initial)
+            if (initial.liveGoal.enabled && !initial.liveGoal.dismissed && goal != null &&
+                goal.metric.source in HealthConnectRepository.supported) {
+                val access = when {
+                    HealthConnectClient.getSdkStatus(applicationContext) != HealthConnectClient.SDK_AVAILABLE -> ProviderAccess.UNAVAILABLE
+                    HealthConnectRepository.permission(goal.metric.source) !in
+                        HealthConnectClient.getOrCreate(applicationContext).permissionController.getGrantedPermissions() -> ProviderAccess.DENIED
+                    else -> null
+                }
+                if (access != null) LiveGoalNotifications.publish(applicationContext,
+                    HealthSnapshot(mode = initial.mode, access = access), expectedGoalId = goal.id)
+            }
             return Result.success()
         }
         val challenges = ChallengeRepository(applicationContext)
@@ -100,13 +113,15 @@ class HealthSyncWorker(context: Context, params: WorkerParameters) : CoroutineWo
         val db = PulseDatabase.open(applicationContext)
         return try {
             val today = LocalDate.now()
+            val zone = ZoneId.systemDefault()
             var google: GoogleHealthResult? = null
             val snapshot = ProviderSync(applicationContext, db.health()).load(initial.mode, today, background = true,
                 preferences = initial, onGoogle = { google = it })
             val current = prefs.preferences.first()
-            if (current.onboarded && current.mode == initial.mode && LocalDate.now() == today) {
+            if (current.onboarded && current.mode == initial.mode && LocalDate.now() == today && ZoneId.systemDefault() == zone) {
                 challenges.evaluate(snapshot, today, current)
                 ProgressNotifications.publish(applicationContext, current, snapshot)
+                LiveGoalNotifications.publish(applicationContext, snapshot)
             }
             if (google?.problem in setOf(GoogleHealthProblem.NETWORK, GoogleHealthProblem.RETRY) && runAttemptCount < 3)
                 Result.retry() else Result.success()
@@ -119,7 +134,8 @@ class HealthSyncWorker(context: Context, params: WorkerParameters) : CoroutineWo
         private const val WORK_NAME = "pulse-health-refresh"
 
         private fun wantsGarminWork(context: Context, p: Preferences, items: List<PersonalChallenge>) =
-            p.progressNotifications && ProgressNotifications.allowed(context) || items.any {
+            p.progressNotifications && ProgressNotifications.allowed(context) ||
+                LiveGoalNotifications.canRefresh(context, p) || items.any {
                 it.tracking.automatic && it.source == DataMode.GARMIN && it.completed == null &&
                     it.status !in setOf(ChallengeStatus.ARCHIVED, ChallengeStatus.PAUSED, ChallengeStatus.EXPIRED)
             }
