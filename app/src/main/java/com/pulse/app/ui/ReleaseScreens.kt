@@ -180,6 +180,11 @@ internal fun UpdateScreen(updates: PulseUpdates, back: () -> Unit) {
                     style = MaterialTheme.typography.bodyMedium)
             }
         }
+        if (updates.github && current !is UpdateState.Available) {
+            SmallAction("Open GitHub Releases") {
+                runCatching { links.openUri("$PULSE_REPOSITORY/releases") }
+            }
+        }
     }
 }
 

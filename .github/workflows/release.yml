@@ -7,6 +7,10 @@ on:
         description: Request publication after signed artifact review
         type: boolean
         default: false
+      attach_to_draft:
+        description: Attach the signed APK to the release draft for testing
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -34,7 +38,7 @@ jobs:
         run: |
           git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main
           [[ "$GITHUB_REF_NAME" =~ ^v[0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6}$ ]]
-          test "$(gh api repos/THREALCOCOBOY/PULSE --jq '.owner.id == 340643353 and (.full_name | ascii_downcase) == "threalcocoboy/pulse" and .visibility == "public" and .default_branch == "main"')" = true
+          test "$(gh api repos/THREALCOCOBOY/PULSE --jq '.owner.id == 340643353 and (.full_name | ascii_downcase) == "threalcocoboy/pulse" and .default_branch == "main"')" = true
       - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
         with:
           distribution: temurin
@@ -76,27 +80,29 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  publish:
-    if: inputs.publish
+  stage:
+    if: inputs.attach_to_draft || inputs.publish
     needs: sign
     runs-on: ubuntu-24.04
     environment: github-release
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: signed-github-release
-      - name: Verify uploaded digest and publish
+          path: release-output
+      - name: Attach verified APK to draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash tools/stage-release-assets.sh "$GITHUB_REF_NAME"
+      - name: Publish the tested draft
+        if: inputs.publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          sha256sum --check --strict SHA256SUMS.txt
-          read -r expected name < SHA256SUMS.txt
-          gh release create "$GITHUB_REF_NAME" "$name" SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" \
-            --verify-tag --draft --title "PULSE ${GITHUB_REF_NAME#v}" --notes-file RELEASE_NOTES.md
-          release_id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME" --jq '.id')
-          actual=$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id/assets" \
-            --jq ".[] | select(.name == \"$name\") | .digest")
-          test "$actual" = "sha256:$expected"
+          test "$(gh api "repos/$GITHUB_REPOSITORY" --jq .visibility)" = public
           gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest

@@ -43,7 +43,7 @@ internal class DistributionUpdates(private val context: Context) {
         val connection = connect(URI("https://api.github.com/repos/THREALCOCOBOY/PULSE/releases/latest"), metadata = true)
         try {
             when (connection.responseCode) {
-                404 -> throw UpdateFailure("GitHub has no published PULSE release available yet.")
+                404 -> throw UpdateFailure("GitHub has no public PULSE release available. Open GitHub Releases to check for downloads.")
                 403, 429 -> {
                     val now = System.currentTimeMillis()
                     val seconds = connection.getHeaderField("Retry-After")?.toLongOrNull()?.coerceIn(60, 3600)
