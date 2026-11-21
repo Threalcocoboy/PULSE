@@ -1,5 +1,8 @@
 # Google Health integration
 
+> **Current release status**
+> I’ve paused Google Health in the release build while verification is pending. The setup and testing notes below describe the preserved integration for future development. They do not indicate that Google Health is available to users or that verification has been completed. To re-enable it for a development build, see [the release guide](RELEASING.md#re-enable-google-health-after-verification).
+
 PULSE reads the stable Google Health v4 API with Google Play services' Android `AuthorizationClient`. The account chooser and consent surface run through Google. PULSE requests an access token for the selected Android account and calls `GET /v4/users/me/identity` before saving a connection. It checks that identity again before each sync. The Android client obtains fresh access tokens through Play services and clears a rejected token before one renewal attempt. Access tokens stay in memory. The optional web authorization-code and refresh-token architecture would require a confidential backend.
 
 ## Google Cloud and a signed APK
