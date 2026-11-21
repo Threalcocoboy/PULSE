@@ -39,10 +39,14 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Verify Gradle wrapper and install Android SDK
+      - name: Verify Gradle wrapper and Android SDK
         run: |
           echo '497c8c2a7e5031f6aa847f88104aa80a93532ec32ee17bdb8d1d2f67a194a9c7  gradle/wrapper/gradle-wrapper.jar' | sha256sum --check
-          sdkmanager 'platforms;android-37.0' 'build-tools;37.0.0'
+          if [[ ! -f "$ANDROID_HOME/platforms/android-37.0/android.jar" || ! -x "$ANDROID_HOME/build-tools/37.0.0/apksigner" ]]; then
+            "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" 'platforms;android-37.0' 'build-tools;37.0.0'
+          fi
+          test -f "$ANDROID_HOME/platforms/android-37.0/android.jar"
+          test -x "$ANDROID_HOME/build-tools/37.0.0/apksigner"
       - name: Build signed APK
         env:
           PULSE_KEYSTORE_BASE64: ${{ secrets.PULSE_KEYSTORE_BASE64 }}
