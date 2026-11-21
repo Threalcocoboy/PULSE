@@ -4,7 +4,7 @@ The canonical project destination is `THREALCOCOBOY/PULSE`. The GitHub owner ID 
 
 ## Publish the source safely
 
-Follow [the publication review](PUBLICATION.md) before pushing. Enable private vulnerability reporting. Set the description to “A customizable, privacy-first Android health dashboard.” Suggested topics are `android`, `kotlin`, `jetpack-compose`, `health-connect`, `fitness`, and `health-dashboard`. Use the existing PULSE logo in a social preview after confirming distribution rights. Add the CI and release badges after their first successful public runs.
+Review the source history and release assets for credentials and personal data before publication. Enable private vulnerability reporting. Set the description to “A customizable, privacy-first Android health dashboard.” Suggested topics are `android`, `kotlin`, `jetpack-compose`, `health-connect`, `fitness`, and `health-dashboard`. Use the existing PULSE logo in a social preview after confirming distribution rights. Add the CI and release badges after their first successful public runs.
 
 ## Configure approved signing
 

@@ -47,7 +47,6 @@ Exports identify source/calendar and exclude all credentials. Native sharing is 
 
 ## Evidence / primary references
 
-Live domain/UI checks: verification/refinement/live-integration.json. Offline, gesture and credential scan reports are alongside it. No raw credentials or personal values appear in those reports.
 
 - [Garmin authentication](https://developer.garmin.com/gc-developer-program/personal/personal-api/)
 - [Garmin expiry/personal-use FAQ](https://developer.garmin.com/gc-developer-program/personal/personal-faq/)

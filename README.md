@@ -1,16 +1,15 @@
 <div align="center">
   <img src="app/src/main/res/drawable-nodpi/pulse_logo.png" alt="PULSE" width="340">
   <h1>PULSE</h1>
-  <p><strong>Your health. Your way.</strong></p>
-  <p>I built PULSE to make my Android health dashboard feel like mine.</p>
+  <p>A customizable Android health dashboard.</p>
   <img alt="Android 9+" src="https://img.shields.io/badge/Android-9%2B-202020?style=flat-square">
   <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-Android-202020?style=flat-square">
   <img alt="Jetpack Compose" src="https://img.shields.io/badge/Jetpack-Compose-CB2437?style=flat-square">
 </div>
 
-## Why I built PULSE
+## About PULSE
 
-I built PULSE because I wanted one place to see my health stats on Android, with a dashboard I could arrange myself. I took inspiration from Nothing’s dot-matrix style for the charts and interface. You can pick the widgets that matter to you and save different layouts for different parts of your day.
+PULSE brings steps, sleep and other health stats into one dashboard you can arrange yourself. The charts take inspiration from Nothing’s dot-matrix displays. You can move widgets around and save layouts for different parts of the day.
 
 ## What’s in the app
 
@@ -28,12 +27,12 @@ I built PULSE because I wanted one place to see my health stats on Android, with
 ## Screenshots
 
 <div align="center">
-  <img src="docs/screenshots/home.png" alt="Home dashboard" width="174">
-  <img src="docs/screenshots/modes.png" alt="PULSE Modes selector" width="174">
   <img src="docs/screenshots/history.png" alt="History and its dot chart" width="174">
+  <img src="docs/screenshots/home.png" alt="Home dashboard" width="174">
+  <img src="docs/screenshots/achievements.png" alt="Achievements tab" width="174">
 </div>
 
-I took these screenshots in an Android emulator with health providers disconnected. I put the goals, challenges, achievements and widget editor screenshots in the [full gallery](docs/screenshots/README.md).
+[See all PULSE screenshots](https://github.com/Threalcocoboy/PULSE/blob/main/docs/screenshots/README.md)
 
 ## Health integrations
 
@@ -41,15 +40,15 @@ I took these screenshots in an Android emulator with health providers disconnect
 
 **Garmin Personal API** is an optional connection for people with their own Garmin Personal API key. PULSE connects directly to Garmin over HTTPS.
 
-**Google Health.** I’ve paused syncing while verification is pending. Health data you already imported stays on your device.
+**Google Health.** Syncing is paused while verification is pending. Health data you already imported stays on your device.
 
-## Your data belongs to you
+## Privacy
 
-I wanted your health records to stay under your control, so PULSE processes measurements on your device. I don’t host a health-record service or include ads, advertising profiles or hidden analytics. Android handles Health Connect permissions. Optional integrations and update checks contact their respective services. If you export your data or share a medal, you choose where it goes in Android’s share sheet.
+PULSE processes health measurements on your device. The app has no hosted health-record service, ads, advertising profiles or hidden analytics. Android handles Health Connect permissions. Optional integrations and update checks contact their respective services. If you export your data or share a medal, you choose where it goes in Android’s share sheet.
 
 ## Install and update
 
-I’m still preparing the first signed public APK. When it’s ready, you’ll find it on the Releases tab. PULSE runs on Android 9 or later. Compare the APK's SHA-256 with the value in the release's checksum file before opening it. Android may ask you to allow installs from the app you used to open the APK.
+The first signed public APK will be available on the Releases tab. PULSE runs on Android 9 or later. Compare the APK's SHA-256 with the value in the release's checksum file before opening it. Android may ask you to allow installs from the app you used to open the APK.
 
 In an official GitHub build, open **More options → Check for updates**. PULSE checks stable releases for a higher Android build number and verifies the download's SHA-256, package identity, Android compatibility and signing certificate. You approve installation in Android. A build distributed through Google Play uses Google Play's update flow.
 
@@ -76,14 +75,18 @@ Read the [architecture notes](docs/ARCHITECTURE.md) and [data flow review](docs/
 
 ## Roadmap
 
-I’m working toward a signed APK that I can distribute and update through GitHub. I plan to bring Google Health sync back once verification and the release requirements are complete.
+The next milestones are a signed release with GitHub updates and restoring Google Health sync after verification.
 
 ## Contributing and security
 
-If you want to help, I’ve written a [contribution guide](CONTRIBUTING.md) with setup steps and tips for testing with sample data. Please report security concerns privately using the [security policy](SECURITY.md).
+The [contribution guide](CONTRIBUTING.md) covers setup and testing with sample data. Please report security concerns privately using the [security policy](SECURITY.md).
 
 ## Legal, license and credits
 
 - [Privacy Policy](PRIVACY.md) and [Terms of Service](TERMS.md) are included in the app.
 - The PULSE source has no project-wide license on file. Public visibility alone does not grant reuse or redistribution rights.
 - PULSE uses AndroidX, Jetpack Compose, Kotlin, Room and Health Connect. See [third-party notices](NOTICE.md) for licensing information.
+
+## AI disclosure
+
+AI tools are used to help build and document PULSE.
