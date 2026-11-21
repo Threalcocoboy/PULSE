@@ -20,8 +20,8 @@ android {
         applicationId = "com.pulse.app"
         minSdk = 28
         targetSdk = 37
-        versionCode = 5
-        versionName = "1.0.1"
+        versionCode = 6
+        versionName = "1.0.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("boolean", "GOOGLE_HEALTH_ENABLED",
             (providers.gradleProperty("pulse.googleHealth.enabled").orNull == "true").toString())
