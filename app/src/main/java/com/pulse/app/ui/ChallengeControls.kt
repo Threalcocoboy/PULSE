@@ -23,6 +23,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.semantics.*
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -44,6 +45,7 @@ internal val ChallengeTracking.title: String get() = when (this) {
     ChallengeTracking.AUTOMATIC -> "Track automatically"
     ChallengeTracking.CHECKBOX -> "Check off manually"
     ChallengeTracking.NUMERIC -> "Enter a number"
+    ChallengeTracking.PERSONAL_GOALS -> "Personal goals"
 }
 
 internal val ChallengeRule.title: String get() = when (this) {
@@ -63,7 +65,8 @@ internal val ChallengeRule.explanation: String get() = when (this) {
 internal val DataMode.sourceName: String get() = when (this) {
     DataMode.HEALTH_CONNECT -> "Health Connect"
     DataMode.GARMIN -> "Garmin"
-    DataMode.DEMO -> "Health Connect or Garmin"
+    DataMode.GOOGLE_HEALTH -> "Google Health"
+    DataMode.NONE -> "Connected health source"
 }
 
 internal fun parseChallengeNumber(text: String, locale: Locale = Locale.getDefault()): Double? {
@@ -94,7 +97,7 @@ internal fun calendarMonthDays(month: YearMonth, firstWeekday: DayOfWeek): List<
 internal fun ChallengeTopBar(title: String, back: () -> Unit) {
     Surface(color = MaterialTheme.colorScheme.surface) {
         Row(
-            Modifier.fillMaxWidth().heightIn(min = 52.dp).padding(end = 16.dp),
+            Modifier.reveal().fillMaxWidth().heightIn(min = 52.dp).padding(end = 16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconAction("back", "Back", onClick = back)
@@ -157,7 +160,7 @@ internal fun ChallengeField(
     }
 }
 
-internal data class ChallengeOption<T>(val value: T, val title: String, val description: String? = null, val icon: String? = null)
+internal data class ChallengeOption<T>(val value: T, val title: String, val description: String? = null, val icon: String? = null, val enabled: Boolean = true)
 
 @Composable
 internal fun ChallengeSelection(
@@ -217,15 +220,15 @@ internal fun <T> ChallengeChoice(
                     Row(
                         Modifier.fillMaxWidth().clip(shape)
                             .background(if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface)
-                            .selectable(selected, role = Role.RadioButton) { change(option.value); open = false }
+                            .selectable(selected, enabled = option.enabled, role = Role.RadioButton) { change(option.value); open = false }
                             .heightIn(min = PulseTokens.touchTarget).padding(horizontal = 10.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        RadioButton(selected, onClick = null)
+                        RadioButton(selected, onClick = null, enabled = option.enabled)
                         if (option.icon != null) Glyph(option.icon, color = MaterialTheme.colorScheme.onSurface)
                         Column(Modifier.weight(1f)) {
-                            Text(option.title, color = MaterialTheme.colorScheme.onSurface,
+                            Text(option.title, color = if (option.enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.titleMedium)
                             if (option.description != null) Label(option.description)
                         }
@@ -246,7 +249,7 @@ internal fun ChallengeDatePicker(value: LocalDate, today: LocalDate, dismiss: ()
     var monthText by rememberSaveable { mutableStateOf(YearMonth.from(maxOf(value, today)).toString()) }
     val selected = LocalDate.ofEpochDay(selectedDay)
     val month = YearMonth.parse(monthText)
-    val locale = Locale.getDefault()
+    val locale = LocalConfiguration.current.locales[0]
     val firstWeekday = WeekFields.of(locale).firstDayOfWeek
     val days = remember(month, firstWeekday) { calendarMonthDays(month, firstWeekday) }
     val colors = MaterialTheme.colorScheme

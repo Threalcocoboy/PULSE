@@ -6,7 +6,22 @@ val UserAchievement.instanceId get()="${definition.id}:${period ?: "lifetime"}"
 val UserAchievement.repeat get()=if(definition.id.startsWith("monthly_steps_"))AchievementRepeat.STEP_FAMILY else if(period!=null)AchievementRepeat.MONTHLY else AchievementRepeat.ONE_TIME
 object AchievementCollection {
  fun filter(items:List<UserAchievement>,status:AchievementFilter,category:AchievementCategory)=items.filter{(category==AchievementCategory.ALL||it.definition.category==category)&&when(status){AchievementFilter.ALL->true;AchievementFilter.UNLOCKED->it.unlocked;AchievementFilter.LOCKED->!it.unlocked;AchievementFilter.IN_PROGRESS->!it.unlocked&&it.progress>0}}
- fun monthly(s:HealthSnapshot,m:YearMonth,today:LocalDate)=Tier.entries.map{tier->val days=HistoryMath.unique(s.days).filter{YearMonth.from(it.date)==m&&it.date<=today};var total=0.0;var crossed:LocalDate?=null;days.forEach{d->val reading=d.readings[Metric.STEPS];total+=reading?.takeIf{it.state in setOf(DataState.READY,DataState.STALE)}?.value?.takeIf{it.isFinite()&&it>=0} ?: 0.0;if(total>=tier.threshold&&crossed==null)crossed=d.date};UserAchievement(AchievementDefinition("monthly_steps_${tier.name}",AchievementCategory.STEPS,"${tier.name.lowercase().replaceFirstChar(Char::titlecase)} Walker","Persistent monthly step badge family","Record ${tier.threshold} steps in $m",tier.threshold.toDouble(),"steps"),total,crossed!=null,crossed,"${total.toLong()} / ${tier.threshold} steps",m)}
+ fun monthly(s: HealthSnapshot, m: YearMonth, today: LocalDate): List<UserAchievement> = Tier.entries.map { tier ->
+     val days = HistoryMath.unique(s.days).filter { YearMonth.from(it.date) == m && it.date <= today }
+     var total = 0.0
+     var crossed: LocalDate? = null
+     for (day in days) {
+         val reading = day.readings[Metric.STEPS]?.takeIf {
+             it.state == DataState.READY || it.state == DataState.STALE && s.mode != DataMode.GOOGLE_HEALTH
+         }
+         total += reading?.value?.takeIf { it.isFinite() && it >= 0 } ?: 0.0
+         if (total >= tier.threshold && crossed == null) crossed = day.date
+     }
+     UserAchievement(AchievementDefinition("monthly_steps_${tier.name}", AchievementCategory.STEPS,
+         "${tier.name.lowercase().replaceFirstChar(Char::titlecase)} Walker", "Persistent monthly step badge family",
+         "Record ${tier.threshold} steps in $m", tier.threshold.toDouble(), "steps"), total, crossed != null, crossed,
+         "${total.toLong()} / ${tier.threshold} steps", m)
+ }
  fun retain(a:UserAchievement,p:Double?,unlocked:Boolean,date:LocalDate?):UserAchievement {val progress=maxOf(a.progress,p ?: 0.0);return a.copy(progress=progress,unlocked=a.unlocked||unlocked,unlockedDate=listOfNotNull(a.unlockedDate,date).minOrNull(),progressText="${progress.toLong()} / ${a.definition.target.toLong()} ${a.definition.unit}")}
 }
 object MonthlyBadges {

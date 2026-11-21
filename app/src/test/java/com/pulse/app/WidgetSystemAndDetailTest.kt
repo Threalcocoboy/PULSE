@@ -88,28 +88,22 @@ class WidgetSystemAndDetailTest {
     }
 
     @Test
-    fun demoDataMaintainsDataIntegrityForDetails() {
-        val today = LocalDate.now()
-        val snapshot = DemoData.snapshot(today)
-        assertTrue(snapshot.days.isNotEmpty())
-        val day = snapshot.days.firstOrNull { it.date == today }
-        assertNotNull(day)
-        assertNotNull(day!!.value(Metric.STEPS))
-        assertNotNull(day.value(Metric.HEART))
-        assertNotNull(day.value(Metric.DISTANCE))
-        // Verify no negative or infinite values
-        assertTrue(day.value(Metric.STEPS) != null && day.value(Metric.STEPS)!! >= 0.0)
-        assertTrue(day.value(Metric.HEART) != null && day.value(Metric.HEART)!! >= 30.0)
+    fun disconnectedSourceHasNoReadingsForDetails() {
+        val snapshot = HealthSnapshot(mode = DataMode.NONE)
+        assertTrue(snapshot.days.isEmpty())
+        assertTrue(snapshot.available.isEmpty())
     }
 
     @Test
     fun historyMathCompareYieldsConsistentPeriods() {
-        val today = LocalDate.now()
-        val snapshot = DemoData.snapshot(today)
-        val summary = HistoryMath.compare(snapshot.days, today, 7, Metric.STEPS)
+        val today = LocalDate.of(2026, 11, 5)
+        val records = (0L..13L).map { offset ->
+            DayData(today.minusDays(offset), mapOf(Metric.STEPS to Reading(900.0 + offset, DataState.READY)))
+        }
+        val summary = HistoryMath.compare(records, today, 7, Metric.STEPS)
         assertNotNull(summary.value)
         assertEquals(7, summary.total)
-        assertTrue(summary.valid in 0..7)
+        assertEquals(7, summary.valid)
     }
 
     @Test

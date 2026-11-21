@@ -1,5 +1,6 @@
 package com.pulse.app.ui
 import androidx.compose.foundation.Canvas
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -11,9 +12,11 @@ import com.pulse.app.core.*
 import kotlin.math.*
 @Composable fun SeasonalBadge(item:UserAchievement,modifier:Modifier=Modifier){
  val ink=MaterialTheme.colorScheme.onSurface;val muted=MaterialTheme.colorScheme.outline
- val progress=(item.progress/item.definition.target).toFloat().coerceIn(0f,1f)
+ val target=(item.progress/item.definition.target).toFloat().coerceIn(0f,1f)
+ val fill=animateFloatAsState(target, PulseMotion.settle(LocalAnimations.current), label="Monthly medal progress")
  val season=Medal(item.period!!,null,null,"",0,null,null).season
- Canvas(modifier.semantics{contentDescription="${item.period}, ${if(item.unlocked)item.definition.name else "No tier yet"}, ${(progress*100).toInt()} percent"}){
+ Canvas(modifier.semantics{contentDescription="${item.period}, ${if(item.unlocked)item.definition.name else "No tier yet"}, ${(target*100).toInt()} percent"}){
+ val progress=fill.value.coerceIn(0f,1f)
  val side=size.minDimension
  withTransform({translate((size.width-side)/2,(size.height-side)/2);scale(side/100,side/100,Offset.Zero)}){
  val stroke=Stroke(1.8f,cap=StrokeCap.Round,join=StrokeJoin.Round)

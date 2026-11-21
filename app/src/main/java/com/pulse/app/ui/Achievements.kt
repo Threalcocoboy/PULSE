@@ -6,6 +6,8 @@ import android.graphics.Typeface
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -50,47 +52,66 @@ import kotlin.math.*
     val earned = lifetime.count { it.unlocked }
     val selected = (allAchievements + monthly).firstOrNull { it.instanceId == selectedId }
 
-    Column(Modifier.reveal().fillMaxSize().verticalScroll(rememberScrollState()).padding(PulseTokens.screenPadding), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        SectionTitle("Achievements", "Your collection")
-        if (LocalDemo.current) Label("Demo · sample achievements", color = Red)
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-            Column(Modifier.weight(1f)) {
-                Text("$earned / ${lifetime.size}", style = MaterialTheme.typography.headlineLarge)
-                Text("Lifetime achievements unlocked", style = MaterialTheme.typography.bodySmall)
+    val motion = LocalAnimations.current
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val columns = if (maxWidth - PulseTokens.screenPadding * 2 < 340.dp ||
+            androidx.compose.ui.platform.LocalDensity.current.fontScale >= 1.3f) 1 else 2
+        val rows = remember(filtered, columns) { filtered.chunked(columns) }
+        LazyColumn(contentPadding = PaddingValues(PulseTokens.screenPadding), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            item("title") { Box(Modifier.reveal(1)) { SectionTitle("Achievements", "Your collection") } }
+            item("lifetime") {
+                Row(Modifier.reveal(2).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                    Column(Modifier.weight(1f)) {
+                        Text("$earned / ${lifetime.size}", style = MaterialTheme.typography.headlineLarge)
+                        Text("Lifetime achievements unlocked", style = MaterialTheme.typography.bodySmall)
+                    }
+                    DotRing(if (lifetime.isEmpty()) 0.0 else earned.toDouble() / lifetime.size, Modifier.size(56.dp))
+                }
             }
-            DotRing(if (lifetime.isEmpty()) 0.0 else earned.toDouble()/lifetime.size, Modifier.size(56.dp))
-        }
-        HorizontalDivider()
-        MonthlySpotlight(snapshot,allAchievements,month,{monthText=it.toString()},{selectedId=it.instanceId},fullYear)
-        HorizontalDivider()
-        Text("Explore collection", style = MaterialTheme.typography.titleLarge)
-        // Two rows stay readable at narrow widths and larger font sizes.
-        Column {
-            AchievementFilter.entries.chunked(2).forEach { options ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    options.forEach { filter ->
-                        FilterChip(selected = selectedStatus == filter, onClick = { status=filter.name }, modifier=Modifier.weight(1f), label={Text(filter.label, style=MaterialTheme.typography.bodyMedium)})
+            item("dividerBeforeMedal") { HorizontalDivider() }
+            item("medal") {
+                Box(Modifier.reveal(3)) {
+                    MonthlySpotlight(snapshot, allAchievements, month, { monthText = it.toString() }, { selectedId = it.instanceId }, fullYear)
+                }
+            }
+            item("dividerAfterMedal") { HorizontalDivider() }
+            item("explore") { Text("Explore collection", Modifier.reveal(4), style = MaterialTheme.typography.titleLarge) }
+            item("filters") {
+                Column {
+                    AchievementFilter.entries.chunked(2).forEach { options ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            options.forEach { filter ->
+                                FilterChip(selectedStatus == filter, { status = filter.name }, modifier = Modifier.weight(1f),
+                                    label = { Text(filter.label, style = MaterialTheme.typography.bodyMedium) })
+                            }
+                        }
                     }
                 }
             }
-        }
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            OutlinedButton(onClick={showCategories=true}, modifier=Modifier.weight(1f)) { Text("Category: ${selectedCategory.label} ▾") }
-            if(category != AchievementCategory.ALL.name || status != AchievementFilter.ALL.name) TextButton(onClick={category=AchievementCategory.ALL.name;status=AchievementFilter.ALL.name}) { Text("Reset") }
-        }
-        Label("${filtered.size} achievements · monthly results for ${month.format(DateTimeFormatter.ofPattern("MMM yyyy"))}")
-        if(filtered.isEmpty()) {
-            Text("No achievements match these filters.")
-            SmallAction("Show all achievements") { category=AchievementCategory.ALL.name;status=AchievementFilter.ALL.name }
-        }
-        BoxWithConstraints(Modifier.fillMaxWidth()) {
-            val columns=if(maxWidth < 340.dp || androidx.compose.ui.platform.LocalDensity.current.fontScale >= 1.3f) 1 else 2
-            Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {
-                filtered.chunked(columns).forEach { row ->
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement=Arrangement.spacedBy(12.dp)) {
-                        row.forEach { item -> Box(Modifier.weight(1f)) { BadgeCard(item) { selectedId=item.instanceId } } }
-                        if(row.size < columns) Spacer(Modifier.weight(1f))
+            item("category") {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedButton({ showCategories = true }, Modifier.weight(1f)) { Text("Category: ${selectedCategory.label} ▾") }
+                    if (selectedCategory != AchievementCategory.ALL || selectedStatus != AchievementFilter.ALL) {
+                        TextButton({ category = AchievementCategory.ALL.name; status = AchievementFilter.ALL.name }) { Text("Reset") }
                     }
+                }
+            }
+            item("results") {
+                Label("${filtered.size} achievements · monthly results for ${month.format(DateTimeFormatter.ofPattern("MMM yyyy"))}")
+            }
+            if (filtered.isEmpty()) item("empty") {
+                Column(Modifier.reveal(5)) {
+                    Text("No achievements match these filters.")
+                    SmallAction("Show all achievements") { category = AchievementCategory.ALL.name; status = AchievementFilter.ALL.name }
+                }
+            }
+            itemsIndexed(rows, key = { _, row -> row.first().instanceId }) { index, row ->
+                Row(Modifier.fillMaxWidth().then(if (motion) Modifier.animateItem(placementSpec = PulseMotion.settle(true)) else Modifier)
+                    .reveal(index + 5, scale = .98f), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    row.forEach { item ->
+                        key(item.instanceId) { Box(Modifier.weight(1f)) { BadgeCard(item) { selectedId = item.instanceId } } }
+                    }
+                    if (row.size < columns) Spacer(Modifier.weight(1f))
                 }
             }
         }
@@ -107,13 +128,13 @@ import kotlin.math.*
             Spacer(Modifier.height(24.dp))
         }
     }
-    selected?.let { item -> ModalBottomSheet(onDismissRequest={selectedId=null}, sheetState=rememberModalBottomSheetState(skipPartiallyExpanded=true), containerColor=MaterialTheme.colorScheme.background) {
-        AchievementDetailSheet(item,allAchievements) { selectedId=null }
+    selected?.let { item -> PulseSheet({ selectedId=null }, containerColor=MaterialTheme.colorScheme.background) { close ->
+        AchievementDetailSheet(item,allAchievements) { close { selectedId=null } }
     } }
 }
 
 @Composable private fun BadgeCard(item: UserAchievement, onClick: () -> Unit) {
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick=onClick).padding(12.dp), horizontalAlignment=Alignment.CenterHorizontally, verticalArrangement=Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).pulseClickable(onClick).padding(12.dp), horizontalAlignment=Alignment.CenterHorizontally, verticalArrangement=Arrangement.spacedBy(8.dp)) {
         PulseBadgeArt(item,Modifier.size(80.dp))
         Text(item.definition.name,style=MaterialTheme.typography.titleMedium,textAlign=TextAlign.Center)
         Label(item.period?.format(DateTimeFormatter.ofPattern("MMM yyyy")) ?: item.definition.challengeCategory?.let{"Challenge reward · $it"} ?: item.definition.category.label)
@@ -133,11 +154,12 @@ import kotlin.math.*
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        PulseBadgeArt(item, Modifier.size(120.dp))
+        PulseBadgeArt(item, Modifier.reveal(scale = if (item.unlocked) .83f else .97f).size(120.dp))
         item.period?.let { Text(it.format(DateTimeFormatter.ofPattern("MMMM yyyy")), style=MaterialTheme.typography.titleMedium) }
 
         Text(
             item.definition.name,
+            Modifier.reveal(1),
             style = MaterialTheme.typography.headlineMedium,
             textAlign = TextAlign.Center
         )
@@ -181,12 +203,7 @@ import kotlin.math.*
 
             // Progress bar
             val progressFrac = (item.progress / item.definition.target).coerceIn(0.0, 1.0).toFloat()
-            LinearProgressIndicator(
-                progress = { progressFrac },
-                modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
-                color = Red,
-                trackColor = MaterialTheme.colorScheme.outline
-            )
+            PulseProgress(progressFrac, Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)), trackColor = MaterialTheme.colorScheme.outline)
 
             if (item.unlocked) {
                 item.unlockedDate?.let { date ->
@@ -354,7 +371,6 @@ fun drawMedal(c: android.graphics.Canvas, m: Medal, compact: Boolean = false) {
         raw.copy(total=total.takeIf {it>0 || raw.total!=null},tier=Achievements.tier(total))
     }
     val context = LocalContext.current
-    val demo = LocalDemo.current
     val days = (1..month.lengthOfMonth()).map { d -> snapshot.days.firstOrNull { it.date == month.atDay(d)}?.value(Metric.STEPS) }
 
     Column(
@@ -366,7 +382,6 @@ fun drawMedal(c: android.graphics.Canvas, m: Medal, compact: Boolean = false) {
             IconAction("back", "Back", onClick = back)
             Label(month.format(DateTimeFormatter.ofPattern("MMMM yyyy")).uppercase())
         }
-        if (demo) Label("DEMO COLLECTION / SAMPLE DATA", color = Red)
         val main=items.lastOrNull {it.unlocked} ?: items.first()
         SeasonalBadge(main, Modifier.fillMaxWidth(.84f).aspectRatio(1f))
         Label("Monthly Step Badge · Unlocked ${MonthlyBadges.familyCount(history)} times")
@@ -395,7 +410,7 @@ fun drawMedal(c: android.graphics.Canvas, m: Medal, compact: Boolean = false) {
             Text("The source has not confirmed complete monthly coverage. This result may change when late records arrive.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         PulseButton("Share medal", Modifier.fillMaxWidth(), enabled = medal.tier != null) {
-            ShareExport.medal(context, medal, demo)
+            ShareExport.medal(context, medal)
         }
         Spacer(Modifier.height(20.dp))
     }

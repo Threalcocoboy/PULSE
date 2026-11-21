@@ -1,6 +1,9 @@
 package com.pulse.app.ui
 
 import androidx.compose.foundation.*
+import androidx.compose.animation.*
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -17,6 +20,7 @@ import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.*
 import com.pulse.app.core.*
+import com.pulse.app.integration.googlehealth.GoogleHealthMetrics
 import java.time.*
 import java.time.format.DateTimeFormatter
 import kotlin.math.abs
@@ -24,8 +28,10 @@ import kotlinx.coroutines.launch
 
 @Composable fun HistoryScreen(p: Preferences,snapshot: HealthSnapshot,daily:(LocalDate)->Unit) {
     var count by rememberSaveable {mutableIntStateOf(7)};var metricName by rememberSaveable {mutableStateOf(Metric.STEPS.name)}
-    var endDate by rememberSaveable {mutableStateOf(LocalDate.now().toString())};var selected by rememberSaveable {mutableIntStateOf(-1)}
+    var endDate by rememberSaveable {mutableStateOf(LocalDate.now().toString())}
+    var selectedKey by rememberSaveable { mutableStateOf<String?>(null) }
     var calendar by rememberSaveable {mutableStateOf(YearMonth.now().toString())}
+    var calendarSelection by rememberSaveable { mutableStateOf<String?>(null) }
     val metric=Metric.valueOf(metricName); val end=LocalDate.parse(endDate)
     val haptics=LocalHapticFeedback.current
     val start=if(count==365) end.minusMonths(11).withDayOfMonth(1) else end.minusDays(count-1L)
@@ -38,59 +44,176 @@ import kotlinx.coroutines.launch
     val recorded=remember(snapshot.heartSamples,start,end){snapshot.heartSamples.filter{it.time.atZone(ZoneId.systemDefault()).toLocalDate() in start..end}.groupBy{it.time.atZone(ZoneId.systemDefault()).toLocalDate()}.values.flatMap{day->val source=day.minOf{it.source};day.filter{it.source==source}.distinctBy{it.time}}.sortedBy{it.time}}
     val raw=remember(recorded){HistorySamples.plot(recorded)}
     val samples=metric==Metric.HEART&&rawHeart
+    val values = if (samples) raw.map { it.bpm } else dateValues.map { it.second }
+    val keys = if (samples) raw.map { it.time.toString() } else dateValues.map { it.first.toString() }
+    val selected = keys.indexOf(selectedKey).takeIf { it >= 0 }
+    val point = selected?.let { dateValues.getOrNull(it) }?.takeUnless { samples }
+    val chosenLabel = selected?.let { index ->
+        if (samples) raw[index].time.atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("d MMM, HH:mm:ss"))
+        else point?.first?.format(DateTimeFormatter.ofPattern(if (count == 365) "MMMM yyyy" else "EEE, d MMM yyyy"))
+    }
+    fun choose(index: Int, toggle: Boolean) {
+        val next = keys.getOrNull(index)?.takeUnless { toggle && it == selectedKey }
+        if (toggle && next != selectedKey && p.haptics) haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+        selectedKey = next
+    }
     val summary=remember(snapshot.days,end,count,metric){HistoryMath.compare(snapshot.days,end,if(count==365) java.time.temporal.ChronoUnit.DAYS.between(start,end).toInt()+1 else count,metric)}
-    Column(Modifier.reveal().fillMaxSize().verticalScroll(rememberScrollState()).padding(PulseTokens.screenPadding),verticalArrangement=Arrangement.spacedBy(14.dp)) {
-        SectionTitle("History")
-        if(LocalDemo.current)Label("Demo data")
-        PeriodSegments(count){count=it;selected=-1}
-        MetricTabs(metric){metricName=it.name;selected=-1}
-        PulseCard(Modifier.fillMaxWidth()) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(PulseTokens.screenPadding),verticalArrangement=Arrangement.spacedBy(14.dp)) {
+        Row(Modifier.reveal().fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f)) { SectionTitle("History") }
+            LocalPulseMenu.current?.invoke(null)
+        }
+        Box(Modifier.reveal(1)) { PeriodSegments(count){count=it;selectedKey=null} }
+        Box(Modifier.reveal(2)) { MetricTabs(metric, snapshot.available + if (snapshot.mode == DataMode.GOOGLE_HEALTH) GoogleHealthMetrics.metrics else emptySet()) {
+            metricName=it.name;selectedKey=null
+        } }
+        PulseCard(Modifier.reveal(3, scale = .985f).fillMaxWidth()) {
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically){
-                IconAction("back","Previous period"){endDate=(if(count==365)end.minusYears(1)else end.minusDays(count.toLong())).toString();selected=-1}
-                Text("${start.format(DateTimeFormatter.ofPattern("d MMM yy"))} — ${end.format(DateTimeFormatter.ofPattern("d MMM yy"))}",Modifier.weight(1f),style=MaterialTheme.typography.bodySmall,textAlign=TextAlign.Center)
-                IconAction("next","Next period",end<LocalDate.now()){endDate=(if(count==365)end.plusYears(1)else end.plusDays(count.toLong())).coerceAtMost(LocalDate.now()).toString();selected=-1}
+                IconAction("back","Previous period"){endDate=(if(count==365)end.minusYears(1)else end.minusDays(count.toLong())).toString();selectedKey=null}
+                PulseSwap(chosenLabel ?: "${start.format(DateTimeFormatter.ofPattern("d MMM yy"))} — ${end.format(DateTimeFormatter.ofPattern("d MMM yy"))}",
+                    Modifier.weight(1f), label = "History date", distance = 5) {
+                    Text(it, Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+                }
+                IconAction("next","Next period",end<LocalDate.now()){endDate=(if(count==365)end.plusYears(1)else end.plusDays(count.toLong())).coerceAtMost(LocalDate.now()).toString();selectedKey=null}
             }
-            Label(if(metric.cumulative) "${metric.label.uppercase()} / TOTAL" else "${metric.label.uppercase()} / RECORDED AVERAGE")
-            Text(valueText(summary.value,metric,p.imperial),fontSize=36.sp,fontWeight=FontWeight.Normal)
-            if(metric!=Metric.SLEEP)Label(if(metric==Metric.DISTANCE && p.imperial)"mi" else metric.unit)
-            if(metric==Metric.HEART)Row{FilterChip(rawHeart,{rawHeart=true;selected=-1},label={Text("Samples")});FilterChip(!rawHeart,{rawHeart=false;selected=-1},label={Text("Daily averages")})}
-            val values=if(samples)raw.map{it.bpm} else dateValues.map{it.second}
-            val points=if(samples&&raw.isNotEmpty()){val first=start.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli();val range=end.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()-first;raw.map{(it.time.toEpochMilli()-first).toFloat()/range}}else null
-            AxisChart(values,metric,selected.takeIf{it in values.indices},{selected=it},!samples&&metric in setOf(Metric.STEPS,Metric.DISTANCE,Metric.SLEEP),points,p.imperial)
-            if(samples){Text(when{snapshot.error!=null->"Import failed · retained samples";snapshot.status.contains("unavailable",ignoreCase=true)->"Health Connect or source unavailable";Metric.HEART !in snapshot.available&&snapshot.mode!=DataMode.DEMO->"Heart-rate read permission is not granted";snapshot.heartSamples.isEmpty()->"No source heart-rate samples imported. Recorded daily averages are available separately.";raw.isEmpty()->"No authorized heart-rate samples in this interval. Daily averages remain available when recorded.";else->"${recorded.size} actual samples · ${raw.size} plotted observations (extrema retained) · bpm"},style=MaterialTheme.typography.bodySmall);if(selected in raw.indices)Text("${raw[selected].time.atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("d MMM HH:mm:ss"))} · ${raw[selected].bpm} bpm",color=Red)}
+            val statistic = when {
+                selected != null && samples -> "Sample"
+                metric.cumulative -> "Total"
+                selected != null && count != 365 -> "Daily reading"
+                else -> "Recorded average"
+            }
+            Label("${metric.label} · $statistic")
+            if (snapshot.mode == DataMode.GOOGLE_HEALTH && metric in GoogleHealthMetrics.metrics && metric !in snapshot.available) {
+                val state = snapshot.days.firstOrNull { it.date == LocalDate.now() }?.readings?.get(metric)?.state
+                Label(if (state == DataState.UNSUPPORTED) "Unavailable from your source" else "Review Google Health permissions in Devices & Data")
+            }
+            val reading = if (selected == null) summary.value else values[selected]
+            val unit = if (metric == Metric.DISTANCE && p.imperial) "mi" else metric.unit
+            PulseSwap(metric to unit, label = "History metric reading", distance = 9) { (displayMetric, displayUnit) ->
+                var lastReading by remember { mutableStateOf(reading) }
+                val displayed = if (displayMetric == metric && displayUnit == unit) reading else lastReading
+                SideEffect { if (displayMetric == metric && displayUnit == unit) lastReading = reading }
+                Column {
+                    AnimatedReading(valueText(displayed, displayMetric, displayUnit == "mi"), displayed, Modifier.fillMaxWidth()) {
+                        FitText(it, Modifier.fillMaxWidth(), fontSize = 36.sp, fontWeight = FontWeight.Normal)
+                    }
+                    if (displayMetric != Metric.SLEEP) Label(displayUnit)
+                }
+            }
+            if(metric==Metric.HEART)Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)){FilterChip(rawHeart,{rawHeart=true;selectedKey=null},label={Text("Samples")});FilterChip(!rawHeart,{rawHeart=false;selectedKey=null},label={Text("Daily averages")})}
+            val points = remember(samples, raw, start, end) {
+                if (samples && raw.isNotEmpty()) {
+                    val zone = ZoneId.systemDefault()
+                    val first = start.atStartOfDay(zone).toInstant().toEpochMilli()
+                    val span = end.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli() - first
+                    raw.map { (it.time.toEpochMilli()-first).toFloat() / span }
+                } else null
+            }
+            val frame = HistoryChartFrame(values, metric, selected, !samples && metric in setOf(Metric.STEPS, Metric.DISTANCE, Metric.SLEEP), points, p.imperial)
+            val chartKey = Triple(metric, count to end, samples)
+            PulseSwap(chartKey, label = "History graph dataset", distance = 16) { key ->
+                var retained by remember { mutableStateOf(frame) }
+                val active = key == chartKey
+                val shown = if (active) frame else retained
+                SideEffect { if (active) retained = frame }
+                AxisChart(shown.values, shown.metric, shown.selected, { if (active) choose(it,false) },
+                    shown.bars, shown.points, shown.imperial, tap = { if (active) choose(it,true) }, interactive = active)
+            }
+            if(samples) Text(when{snapshot.mode==DataMode.NONE->"Connect a data source to see heart rate.";snapshot.error!=null->"Import failed · retained samples";snapshot.status.contains("unavailable",ignoreCase=true)->"Health Connect or source unavailable";Metric.HEART !in snapshot.available->"Heart-rate read permission is not granted";snapshot.heartSamples.isEmpty()->"No source heart-rate samples imported. Recorded daily averages are available separately.";raw.isEmpty()->"No authorized heart-rate samples in this interval. Daily averages remain available when recorded.";else->"${recorded.size} recorded samples · ${raw.size} plotted"},style=MaterialTheme.typography.bodySmall)
 
             Row(Modifier.fillMaxWidth().padding(start=54.dp),horizontalArrangement=Arrangement.SpaceBetween){Label(start.format(DateTimeFormatter.ofPattern("d MMM")));Label(end.format(DateTimeFormatter.ofPattern("d MMM")))}
-            if(!samples&&selected in dateValues.indices) {val point=dateValues[selected];Text("${point.first.format(DateTimeFormatter.ofPattern(if(count==365)"MMMM yyyy" else "EEE, d MMM"))} · ${valueText(point.second,metric,p.imperial)} ${if(metric==Metric.SLEEP)""else if(metric==Metric.DISTANCE&&p.imperial)"mi"else metric.unit}",color=Red);if(count!=365) SmallAction("Open day") {daily(point.first)}}
-            else Label("TOUCH THE DOTS TO EXPLORE")
+            if (selected != null) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    if (values[selected] == null) Label("No reading recorded")
+                    if (point != null && count != 365) SmallAction("Open day") { daily(point.first) }
+                }
+                SmallAction("Clear selection") { selectedKey = null }
+            }
         }
-        Row(Modifier.fillMaxWidth().padding(vertical=4.dp),horizontalArrangement=Arrangement.spacedBy(20.dp)) {
+        Row(Modifier.reveal(4).fillMaxWidth().padding(vertical=4.dp),horizontalArrangement=Arrangement.spacedBy(20.dp)) {
             Column(Modifier.weight(1f)){Label("Coverage");Text("${summary.valid} / ${summary.total}",fontSize=22.sp);Label("Recorded days")}
             Column(Modifier.weight(1f)){Label("Previous period");Text(valueText(summary.previous,metric,p.imperial),fontSize=22.sp);Label(if(metric.cumulative)"Total"else"Average")}
         }
         HorizontalDivider(color=MaterialTheme.colorScheme.outline)
-        Text(if(summary.change==null) "Not enough recorded data for a complete comparison." else "${valueText(abs(summary.change!!),metric,p.imperial)} ${if(metric==Metric.SLEEP) "" else metric.unit} ${if(summary.change!!>=0) "higher" else "lower"} than the preceding period${summary.percent?.let {" (${String.format(java.util.Locale.getDefault(),"%.1f",abs(it))}%)"} ?: ""}.",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
-        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically){Column{Text("The daily archive",style=MaterialTheme.typography.titleLarge);Label(metric.label.uppercase())};Glyph("dots",color=Red)}
-        CalendarHeatmap(YearMonth.parse(calendar),metric,p,snapshot.days,{calendar=it.toString()},daily)
+        val comparisonUnit = if (metric == Metric.DISTANCE && p.imperial) "mi" else metric.unit
+        Text(if(summary.change==null) "Not enough recorded data for a complete comparison." else "${valueText(abs(summary.change!!),metric,p.imperial)} ${if(metric==Metric.SLEEP) "" else comparisonUnit} ${if(summary.change!!>=0) "higher" else "lower"} than the preceding period${summary.percent?.let {" (${String.format(java.util.Locale.getDefault(),"%.1f",abs(it))}%)"} ?: ""}.",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        Column(Modifier.reveal(5)) { Text("The daily archive",style=MaterialTheme.typography.titleLarge); Label(metric.label.uppercase()) }
+        Box(Modifier.reveal(6)) {
+            CalendarHeatmap(YearMonth.parse(calendar),metric,p,snapshot.days,calendarSelection,{calendar=it.toString()}) {
+                calendarSelection = it.toString()
+                daily(it)
+            }
+        }
         Spacer(Modifier.height(8.dp))
     }
 }
-@Composable private fun CalendarHeatmap(month: YearMonth,metric: Metric,p: Preferences,days: List<DayData>,change:(YearMonth)->Unit,daily:(LocalDate)->Unit) {
-    val values=remember(days,month){HistoryMath.unique(days).filter {YearMonth.from(it.date)==month}.associateBy {it.date}}
-    val max=values.values.mapNotNull {it.value(metric)}.maxOrNull()?.coerceAtLeast(1.0) ?: 1.0
-    Column(verticalArrangement=Arrangement.spacedBy(6.dp)) {
-        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically){IconAction("back","Previous month"){change(month.minusMonths(1))};Text(month.format(DateTimeFormatter.ofPattern("MMMM yyyy")));IconAction("next","Next month",month<YearMonth.now()){change(month.plusMonths(1))}}
-        Row(Modifier.fillMaxWidth()){listOf("M","T","W","T","F","S","S").forEach {Box(Modifier.weight(1f),contentAlignment=Alignment.Center){Label(it)}}}
-        val offset=month.atDay(1).dayOfWeek.value-1;val weeks=(offset+month.lengthOfMonth()+6)/7
-        repeat(weeks){week->Row(Modifier.fillMaxWidth()) {repeat(7){d->
-            val day=week*7+d-offset+1
-            if(day !in 1..month.lengthOfMonth()) Spacer(Modifier.weight(1f).height(56.dp))
-            else {val date=month.atDay(day);val v=values[date]?.value(metric);val future=date>LocalDate.now()
-                Column(Modifier.weight(1f).heightIn(min=56.dp).clip(RoundedCornerShape(8.dp)).clickable(enabled=!future){daily(date)}.padding(vertical=8.dp).semantics(mergeDescendants=true){contentDescription="${date}: ${valueText(v,metric,p.imperial)} ${metric.unit}"},horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(6.dp)) {
-                    Text(day.toString(),fontSize=12.sp,color=if(future)MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurface)
-                    Box(Modifier.size(8.dp).background(if(v==null)MaterialTheme.colorScheme.outline else Red.copy(alpha=(.25+.75*v/max).toFloat().coerceIn(.25f,1f)),CircleShape))
+private data class HistoryChartFrame(
+    val values: List<Double?>, val metric: Metric, val selected: Int?, val bars: Boolean,
+    val points: List<Float>?, val imperial: Boolean
+)
+
+@Composable private fun CalendarHeatmap(month: YearMonth,metric: Metric,p: Preferences,days: List<DayData>,selectedDay: String?,change:(YearMonth)->Unit,daily:(LocalDate)->Unit) {
+    val motion = LocalAnimations.current
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            IconAction("back", "Previous month") { change(month.minusMonths(1)) }
+            PulseSwap(month, label = "Calendar month", direction = { from, to -> to.compareTo(from).coerceIn(-1, 1) }) {
+                Text(it.format(DateTimeFormatter.ofPattern("MMMM yyyy")))
+            }
+            IconAction("next", "Next month", month < YearMonth.now()) { change(month.plusMonths(1)) }
+        }
+        Row(Modifier.fillMaxWidth()) {
+            listOf("M", "T", "W", "T", "F", "S", "S").forEach { Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { Label(it) } }
+        }
+        AnimatedContent(month, transitionSpec = {
+            val direction = targetState.compareTo(initialState).coerceIn(-1, 1) * if (rtl) -1 else 1
+            if (motion) (fadeIn(PulseMotion.tween(true)) + slideInHorizontally(PulseMotion.tween(true, PulseMotion.Card)) { direction * it / 5 })
+                .togetherWith(fadeOut(PulseMotion.tween(true, 145)) + slideOutHorizontally(PulseMotion.tween(true)) { -direction * it / 5 })
+                .using(SizeTransform { _, _ -> PulseMotion.settle(true) })
+            else (EnterTransition.None togetherWith ExitTransition.None).using(null)
+        }, label = "Calendar days") { shown ->
+            val values = remember(days, shown) { HistoryMath.unique(days).filter { YearMonth.from(it.date) == shown }.associateBy { it.date } }
+            val maximum = values.values.mapNotNull { it.value(metric) }.maxOrNull()?.coerceAtLeast(1.0) ?: 1.0
+            val offset = shown.atDay(1).dayOfWeek.value - 1
+            val weeks = (offset + shown.lengthOfMonth() + 6) / 7
+            val today = LocalDate.now()
+            Column(Modifier.foregroundSemantics(shown == month)) {
+                repeat(weeks) { week ->
+                    Row(Modifier.fillMaxWidth()) {
+                        repeat(7) { column ->
+                            val day = week * 7 + column - offset + 1
+                            if (day !in 1..shown.lengthOfMonth()) Spacer(Modifier.weight(1f).height(56.dp))
+                            else {
+                                val date = shown.atDay(day)
+                                val selected = date.toString() == selectedDay
+                                val value = values[date]?.value(metric)
+                                val color = if (value == null) MaterialTheme.colorScheme.outline else
+                                    Red.copy(alpha = (.25 + .75 * value / maximum).toFloat().coerceIn(.25f, 1f))
+                                Column(Modifier.weight(1f).heightIn(min = 56.dp).clip(RoundedCornerShape(8.dp))
+                                    .clickable(enabled = shown == month && date <= today) { daily(date) }.padding(vertical = 8.dp)
+                                    .semantics(mergeDescendants = true) {
+                                        contentDescription = "${date}: ${valueText(value,metric,p.imperial)} ${metric.unit}"
+                                        this.selected = selected
+                                    },
+                                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text(day.toString(), fontSize = 12.sp, color = when {
+                                        date > today -> MaterialTheme.colorScheme.outline
+                                        selected || date == today -> Red
+                                        else -> MaterialTheme.colorScheme.onSurface
+                                    })
+                                    val diameter by animateDpAsState(if (selected) 12.dp else 8.dp, PulseMotion.settle(motion), label = "Calendar day selection")
+                                    Box(Modifier.size(12.dp), contentAlignment = Alignment.Center) {
+                                        Box(Modifier.then(if (date == today) Modifier.reveal(scale = .65f) else Modifier)
+                                            .size(diameter).background(if (selected) Red else color, CircleShape))
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
-        }}}
+        }
         Label("DOT INTENSITY = RECORDED ${metric.label.uppercase()} · TAP A DAY")
     }
 }
@@ -154,12 +277,8 @@ import kotlinx.coroutines.launch
             }
         }
 
-        if (LocalDemo.current) {
-            Label("●  DEMO DATA · NOT LIVE", color = Red)
-        }
-
         // Summary Hero Card: Today's High-Level Vitals
-        PulseCard(Modifier.fillMaxWidth()) {
+        PulseCard(Modifier.reveal(2, scale = .98f).fillMaxWidth()) {
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -182,7 +301,31 @@ import kotlinx.coroutines.launch
                 Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Label("SLEEP")
                     Text(valueText(sleepVal, Metric.SLEEP), fontSize = 22.sp)
-                    Label(if (sleepVal == null) "No sleep" else "Rest duration")
+                    Label(if (sleepVal == null) "No sleep record" else "Rest duration")
+                }
+            }
+        }
+
+        if (snapshot.mode == DataMode.GOOGLE_HEALTH) {
+            var extra by rememberSaveable { mutableStateOf(false) }
+            SmallAction(if (extra) "Hide additional metrics" else "More health records") { extra = !extra }
+            val shown = setOf(Metric.STEPS, Metric.DISTANCE, Metric.ACTIVE, Metric.CALORIES, Metric.HEART, Metric.RESTING_HEART,
+                Metric.HRV, Metric.SLEEP, Metric.STRESS, Metric.BATTERY)
+            if (extra) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                (GoogleHealthMetrics.metrics - shown).sortedBy { it.label }.forEach { metric ->
+                    val reading = day?.readings?.get(metric)
+                    PulseCard(Modifier.fillMaxWidth().clickable { openMetric(metric, date) }) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(metric.label, Modifier.weight(1f))
+                            Text(when {
+                                reading?.value != null -> "${valueText(reading.value, metric, p.imperial)} ${metric.unit}"
+                                !day?.recordDetails?.get(metric).isNullOrEmpty() -> "View records"
+                                reading?.state == DataState.UNSUPPORTED -> "Unavailable"
+                                metric !in snapshot.available -> "Permission needed"
+                                else -> "No record"
+                            })
+                        }
+                    }
                 }
             }
         }

@@ -39,6 +39,7 @@ import kotlin.math.roundToInt
 
     val value = day?.value(metric)
     val state = day?.readings?.get(metric)?.state ?: DataState.EMPTY
+    val provider = day?.readings?.get(metric)?.provider
 
     Column(
         Modifier
@@ -89,11 +90,10 @@ import kotlin.math.roundToInt
             }
         }
 
-        if (LocalDemo.current) {
-            Label("●  DEMO DATA · NOT LIVE", color = Red)
-        }
+        provider?.let { MetaText(it.displayName()) }
+        if (state == DataState.STALE) Label("Saved reading · sync to update")
+        if (state == DataState.PERMISSION_DENIED) Label("Read permission needed")
 
-        // Render Metric-Specific Detail Content
         when (metric) {
             Metric.STEPS -> StepsDetailContent(date, value, day, p, snapshot)
             Metric.SLEEP -> SleepDetailContent(date, value, day, p, snapshot)
@@ -106,9 +106,36 @@ import kotlin.math.roundToInt
             Metric.ACTIVE -> ActiveMinutesDetailContent(date, value, day, p, snapshot)
             Metric.CALORIES -> CaloriesDetailContent(date, value, day, p, snapshot)
             Metric.ACTIVITIES -> ActivitiesDetailContent(date, value, day, p, snapshot)
-            else -> StepsDetailContent(date, value, day, p, snapshot)
+            else -> {
+                PulseCard(Modifier.fillMaxWidth()) {
+                    Label(metric.label)
+                    if (value != null) {
+                        Text(valueText(value, metric, p.imperial), fontSize = 36.sp)
+                        if (metric !in setOf(Metric.TIME_IN_BED, Metric.SLEEP_AWAKE, Metric.SLEEP_PERIOD)) Label(metric.unit)
+                    } else if (day?.recordDetails?.get(metric).isNullOrEmpty()) {
+                        Text(if (state == DataState.PERMISSION_DENIED) "Grant access in Devices & Data." else "No measurement for this date.")
+                    }
+                }
+                val days = (6L downTo 0L).map { offset -> snapshot.days.firstOrNull { it.date == date.minusDays(offset) }?.value(metric) }
+                if (days.any { it != null }) PulseCard(Modifier.fillMaxWidth()) {
+                    Label("7-day history")
+                    val axis = AxisMath.scale(days, metric)
+                    DotChart(values = days, modifier = Modifier.fillMaxWidth().height(94.dp),
+                        domainMin = axis.minimum, domainMax = axis.maximum)
+                }
+            }
         }
 
+        val records = day?.recordDetails?.get(metric).orEmpty() +
+            if (metric == Metric.SLEEP) day?.recordDetails?.get(Metric.SLEEP_STAGES).orEmpty() else emptyList()
+        if (records.isNotEmpty()) {
+            var take by rememberSaveable(date, metric) { mutableIntStateOf(20) }
+            PulseCard(Modifier.fillMaxWidth()) {
+                Label("Records")
+                records.take(take).forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+                if (take < records.size) SmallAction("Show more records") { take += 30 }
+            }
+        }
         Spacer(Modifier.height(24.dp))
     }
 }
@@ -121,9 +148,7 @@ import kotlin.math.roundToInt
     p: Preferences,
     snapshot: HealthSnapshot
 ) {
-    val stepGoal = p.stepGoal.toDouble()
-    val percent = ((value ?: 0.0) / stepGoal * 100).toInt()
-    val remaining = (stepGoal - (value ?: 0.0)).coerceAtLeast(0.0)
+    val stepGoal = Goals.indicator(Metric.STEPS, p)
 
     // Primary Overview Card
     PulseCard(Modifier.fillMaxWidth()) {
@@ -132,21 +157,23 @@ import kotlin.math.roundToInt
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Label("STEPS RECORDED")
-                Text(valueText(value, Metric.STEPS), fontSize = 42.sp, fontWeight = FontWeight.Normal)
+                FitText(valueText(value, Metric.STEPS), fontSize = 42.sp, fontWeight = FontWeight.Normal)
                 Text(
                     if (value == null) "No step data for this date"
-                    else if (value >= stepGoal) "Daily goal achieved!"
-                    else "${number(remaining)} steps to reach goal",
+                    else if (day?.readings?.get(Metric.STEPS)?.state == DataState.STALE) "Saved reading"
+                    else if (stepGoal == null) "Recorded steps"
+                    else if (value >= stepGoal) "Daily goal achieved"
+                    else "${number(stepGoal - value)} steps to reach goal",
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (value != null && value >= stepGoal) Red else MaterialTheme.colorScheme.onSurfaceVariant
+                    color = if (value != null && stepGoal != null && value >= stepGoal) Red else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
-            Box(Modifier.size(80.dp), contentAlignment = Alignment.Center) {
+            if (stepGoal != null) Box(Modifier.size(80.dp), contentAlignment = Alignment.Center) {
                 DotRing((value ?: 0.0) / stepGoal, Modifier.fillMaxSize())
-                Text("$percent%", fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                FitText(if (value == null) "—" else "${(value / stepGoal * 100).toInt()}%", fontSize = 16.sp, fontWeight = FontWeight.Medium)
             }
         }
     }
@@ -155,13 +182,13 @@ import kotlin.math.roundToInt
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         PulseCard(Modifier.weight(1f)) {
             Label("DISTANCE")
-            val dist = day?.value(Metric.DISTANCE) ?: ((value ?: 0.0) * 0.00073)
+            val dist = day?.value(Metric.DISTANCE)
             Text(valueText(dist, Metric.DISTANCE, p.imperial), fontSize = 22.sp)
             Label(if (p.imperial) "miles" else "km")
         }
         PulseCard(Modifier.weight(1f)) {
             Label("CALORIES")
-            val cal = day?.value(Metric.CALORIES) ?: ((value ?: 0.0) * 0.04)
+            val cal = day?.value(Metric.CALORIES)
             Text(number(cal), fontSize = 22.sp)
             Label("kcal burned")
         }
@@ -183,7 +210,7 @@ import kotlin.math.roundToInt
             verticalAlignment = Alignment.CenterVertically
         ) {
             Label("7-DAY STEP HISTORY")
-            Label("Goal: ${number(stepGoal)}")
+            if (stepGoal != null) Label("Goal: ${number(stepGoal)}")
         }
 
         DotChart(
@@ -205,8 +232,8 @@ import kotlin.math.roundToInt
     }
 
     // Goal Completion Summary
-    val goalHits = past7Days.count { (it.second ?: 0.0) >= stepGoal }
-    PulseCard(Modifier.fillMaxWidth()) {
+    if (stepGoal != null) PulseCard(Modifier.fillMaxWidth()) {
+        val goalHits = past7Days.count { (_, value) -> value != null && value >= stepGoal }
         Label("GOAL CONSISTENCY")
         Text("$goalHits of 7 days reached goal", style = MaterialTheme.typography.titleMedium)
         Text(
@@ -225,8 +252,7 @@ import kotlin.math.roundToInt
     p: Preferences,
     snapshot: HealthSnapshot
 ) {
-    val sleepGoal = p.sleepGoal
-    val percent = if (value != null) ((value / sleepGoal) * 100).toInt() else 0
+    val sleepGoal = Goals.indicator(Metric.SLEEP, p)
 
     PulseCard(Modifier.fillMaxWidth()) {
         Row(
@@ -234,18 +260,19 @@ import kotlin.math.roundToInt
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Label("TOTAL SLEEP DURATION")
-                Text(valueText(value, Metric.SLEEP), fontSize = 38.sp, fontWeight = FontWeight.Normal)
+                FitText(valueText(value, Metric.SLEEP), fontSize = 38.sp, fontWeight = FontWeight.Normal)
                 Text(
                     if (value == null) "No sleep session recorded"
-                    else "$percent% of your ${sleepGoal}h target",
+                    else if (sleepGoal != null) "${(value / sleepGoal * 100).toInt()}% of your ${valueText(sleepGoal, Metric.SLEEP)} target"
+                    else "Recorded sleep",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
-            Box(Modifier.size(80.dp), contentAlignment = Alignment.Center) {
+            if (sleepGoal != null) Box(Modifier.size(80.dp), contentAlignment = Alignment.Center) {
                 DotRing((value ?: 0.0) / sleepGoal, Modifier.fillMaxSize())
                 Text(
                     if (value == null) "—" else "${(value * 10).roundToInt() / 10.0}h",
@@ -611,7 +638,7 @@ import kotlin.math.roundToInt
     p: Preferences,
     snapshot: HealthSnapshot
 ) {
-    if (snapshot.mode != DataMode.GARMIN && snapshot.mode != DataMode.DEMO) {
+    if (snapshot.mode != DataMode.GARMIN && snapshot.mode != DataMode.NONE) {
         PulseCard(Modifier.fillMaxWidth()) {
             Label("GARMIN EXCLUSIVE METRIC")
             Text("Body Battery unavailable in Health Connect", style = MaterialTheme.typography.titleMedium)

@@ -1,6 +1,9 @@
 package com.pulse.app.ui
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.*
 import androidx.compose.material3.*
@@ -12,7 +15,7 @@ import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.*
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.font.*
 import androidx.compose.ui.unit.*
@@ -22,9 +25,8 @@ import java.time.LocalDate
 import java.util.Locale
 import kotlin.math.*
 
-val Red=Color(0xFFFF3535)
+val Red=Color(0xFFC8102E)
 val LocalAnimations=staticCompositionLocalOf { true }
-val LocalDemo=staticCompositionLocalOf { true }
 object PulseTokens {
     val screenPadding=20.dp
     val gridGap=8.dp
@@ -38,11 +40,30 @@ object PulseTokens {
     val body=FontFamily.SansSerif
     val mono=FontFamily.Monospace
 }
-private val dark=darkColorScheme(primary=Red,onPrimary=Color.White,secondary=Red,secondaryContainer=Color(0xFF301717),onSecondaryContainer=Red,primaryContainer=Color(0xFF301717),onPrimaryContainer=Color.White,background=Color(0xFF090909),surface=Color(0xFF171717),surfaceContainer=Color(0xFF222222),onBackground=Color.White,onSurface=Color.White,onSurfaceVariant=Color(0xFFA0A0A0),outline=Color(0xFF343434))
-private val light=lightColorScheme(primary=Color(0xFFC91D26),onPrimary=Color.White,secondary=Color(0xFFC91D26),secondaryContainer=Color(0xFFF6DFDA),onSecondaryContainer=Color(0xFF9E1720),primaryContainer=Color(0xFFF6DFDA),onPrimaryContainer=Color(0xFF111111),background=Color(0xFFF4F3EF),surface=Color.White,surfaceContainer=Color(0xFFE9E8E3),onBackground=Color(0xFF111111),onSurface=Color(0xFF111111),onSurfaceVariant=Color(0xFF595959),outline=Color(0xFFD0CECA))
+private val dark = darkColorScheme(
+    primary = Red, onPrimary = Color.White, secondary = Red,
+    secondaryContainer = Color(0xFF301717), onSecondaryContainer = Color(0xFFFF8997),
+    primaryContainer = Color(0xFF301717), onPrimaryContainer = Color.White,
+    background = Color.Black, surface = Color(0xFF171717), surfaceDim = Color(0xFF121212), surfaceBright = Color(0xFF373737),
+    surfaceContainerLowest = Color.Black, surfaceContainerLow = Color(0xFF171717), surfaceContainer = Color(0xFF222222),
+    surfaceContainerHigh = Color(0xFF292929), surfaceContainerHighest = Color(0xFF333333), surfaceVariant = Color(0xFF292929),
+    onBackground = Color.White, onSurface = Color.White, onSurfaceVariant = Color(0xFFA0A0A0),
+    outline = Color(0xFF343434), outlineVariant = Color(0xFF414141)
+)
+private val light = lightColorScheme(
+    primary = Red, onPrimary = Color.White, secondary = Red,
+    secondaryContainer = Color(0xFFF6DFDA), onSecondaryContainer = Color(0xFF9E1720),
+    primaryContainer = Color(0xFFF6DFDA), onPrimaryContainer = Color(0xFF111111),
+    background = Color(0xFFF4F3EF), surface = Color.White, surfaceDim = Color(0xFFE3E1DD), surfaceBright = Color.White,
+    surfaceContainerLowest = Color.White, surfaceContainerLow = Color(0xFFF7F6F3), surfaceContainer = Color(0xFFE9E8E3),
+    surfaceContainerHigh = Color(0xFFE6E4DF), surfaceContainerHighest = Color(0xFFDFDDD8), surfaceVariant = Color(0xFFE9E8E3),
+    onBackground = Color(0xFF111111), onSurface = Color(0xFF111111), onSurfaceVariant = Color(0xFF595959),
+    outline = Color(0xFFD0CECA), outlineVariant = Color(0xFFCBC9C4)
+)
 @Composable fun PulseTheme(p: Preferences, content: @Composable () -> Unit) {
     val isDark=when(p.theme) { "LIGHT" -> false; "SYSTEM" -> isSystemInDarkTheme(); else -> true }
-    CompositionLocalProvider(LocalAnimations provides (p.animations && android.provider.Settings.Global.getFloat(androidx.compose.ui.platform.LocalContext.current.contentResolver,android.provider.Settings.Global.ANIMATOR_DURATION_SCALE,1f)>0f),LocalDemo provides (p.mode==DataMode.DEMO)) {
+    val systemMotion = rememberSystemMotion()
+    CompositionLocalProvider(LocalAnimations provides (p.animations && systemMotion)) {
         MaterialTheme(colorScheme=if(isDark) dark else light,typography=Typography(
             displayLarge=androidx.compose.ui.text.TextStyle(fontFamily=PulseTokens.display,fontSize=40.sp,lineHeight=44.sp,fontWeight=FontWeight.Normal),
             headlineLarge=androidx.compose.ui.text.TextStyle(fontFamily=PulseTokens.display,fontSize=30.sp,lineHeight=36.sp,fontWeight=FontWeight.Normal),
@@ -59,8 +80,14 @@ fun number(value: Double?) = value?.takeIf { it.isFinite() }?.let { NumberFormat
 fun valueText(value: Double?, metric: Metric, imperial: Boolean=false): String {
     if(value==null) return "—"
     return when(metric) {
-        Metric.SLEEP, Metric.SLEEP_STAGES -> (value*60).roundToInt().let {"${it/60}h ${it%60}m"}
+        Metric.SLEEP, Metric.SLEEP_STAGES, Metric.TIME_IN_BED, Metric.SLEEP_AWAKE, Metric.SLEEP_PERIOD -> (value*60).roundToInt().let {"${it/60}h ${it%60}m"}
         Metric.DISTANCE -> String.format(Locale.getDefault(),"%.2f",if(imperial) value*0.621371 else value)
+        Metric.HYDRATION, Metric.VO2_MAX, Metric.DAILY_VO2_MAX, Metric.RUN_VO2_MAX, Metric.DAILY_HRV,
+        Metric.SPO2, Metric.DAILY_SPO2, Metric.RESPIRATORY_RATE, Metric.DAILY_RESPIRATORY_RATE, Metric.BODY_TEMPERATURE,
+        Metric.SLEEP_TEMPERATURE, Metric.TEMPERATURE_BASELINE, Metric.WEIGHT, Metric.BODY_FAT, Metric.HEIGHT,
+        Metric.CARBOHYDRATES, Metric.PROTEIN, Metric.FAT -> NumberFormat.getNumberInstance().apply {
+            maximumFractionDigits = 2
+        }.format(value)
         else -> number(value)
     }
 }
@@ -76,16 +103,31 @@ fun valueText(value: Double?, metric: Metric, imperial: Boolean=false): String {
     Column(verticalArrangement=Arrangement.spacedBy(4.dp)) { Text(title,style=MaterialTheme.typography.headlineLarge); subtitle?.let { Text(it,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant) } }
 }
 @Composable fun PulseButton(text: String, modifier: Modifier=Modifier, enabled: Boolean=true, onClick:()->Unit) {
-    Button(onClick,modifier.heightIn(min=48.dp),enabled,shape=RoundedCornerShape(8.dp),contentPadding=PaddingValues(horizontal=20.dp,vertical=12.dp)) { Text(text) }
+    val source = remember { MutableInteractionSource() }
+    val motion = LocalAnimations.current
+    val container by animateColorAsState(if (enabled) Red else MaterialTheme.colorScheme.onSurface.copy(alpha = .12f), PulseMotion.tween(motion, PulseMotion.Selection), label = "Button availability")
+    Button(onClick,modifier.heightIn(min=48.dp).pulsePress(source),enabled,shape=RoundedCornerShape(8.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = container, disabledContainerColor = container),
+        contentPadding=PaddingValues(horizontal=20.dp,vertical=12.dp), interactionSource = source) {
+        PulseSwap(text, label = "Action label", distance = 4) { Text(it) }
+    }
 }
 @Composable fun SmallAction(text: String, enabled: Boolean=true, onClick:()->Unit) {
-    TextButton(onClick,enabled=enabled,contentPadding=PaddingValues(horizontal=12.dp,vertical=12.dp)) { Text(text,fontSize=12.sp) }
+    val source = remember { MutableInteractionSource() }
+    TextButton(onClick, Modifier.pulsePress(source), enabled=enabled, interactionSource = source,
+        contentPadding=PaddingValues(horizontal=12.dp,vertical=12.dp)) { Text(text,fontSize=12.sp) }
 }
 @Composable fun Glyph(name: String, modifier: Modifier=Modifier, color: Color=LocalContentColor.current) {
     Canvas(modifier.size(22.dp)) {
         val s=size.minDimension; val stroke=Stroke(s*0.065f,cap=StrokeCap.Round,join=StrokeJoin.Round)
         fun line(x1: Float,y1: Float,x2: Float,y2: Float) { drawLine(color,Offset(x1*s,y1*s),Offset(x2*s,y2*s),s*0.065f,StrokeCap.Round) }
         when(name) {
+            "overflow" -> repeat(3) { i -> drawCircle(color, s * .065f, Offset(.5f * s, (.25f + i * .25f) * s)) }
+            "dots" -> for (x in 0..2) for (y in 0..2) drawCircle(color, .064f*s, Offset((.25f+x*.25f)*s, (.25f+y*.25f)*s))
+            "steps" -> {
+                drawOval(color, Offset(.19f*s,.13f*s), Size(.24f*s,.42f*s), style=stroke)
+                drawOval(color, Offset(.56f*s,.45f*s), Size(.24f*s,.42f*s), style=stroke)
+            }
             "moon" -> {
                 val crescent = Path().apply {
                     moveTo(.6f*s,.13f*s)
@@ -145,33 +187,84 @@ fun valueText(value: Double?, metric: Metric, imperial: Boolean=false): String {
     }
 }
 @Composable fun IconAction(name: String, description: String, enabled: Boolean=true, onClick:()->Unit) {
-    IconButton(onClick,enabled=enabled,modifier=Modifier.semantics { contentDescription=description }) { Glyph(name) }
-}
-@Composable fun DotWordmark(modifier:Modifier=Modifier,pulseVisible:Boolean=true){BrandLogo(modifier.size(160.dp,32.dp))}
-@Composable fun DotRing(progress: Double, modifier: Modifier=Modifier) {
-    val muted=MaterialTheme.colorScheme.outline
-    Canvas(modifier.semantics { contentDescription="Goal progress ${(progress*100).toInt()} percent" }) {
-        val r=size.minDimension*.45f; val dot=(r*.025f).coerceAtLeast(1f)
-        repeat(96) { i -> val a=2*PI*i/96-PI/2; drawCircle(if(i<96*progress.coerceIn(0.0,1.0)) Red else muted,dot,center+Offset(cos(a).toFloat()*r,sin(a).toFloat()*r)) }
+    val source = remember { MutableInteractionSource() }
+    IconButton(onClick,enabled=enabled,interactionSource=source,modifier=Modifier.pulsePress(source,.91f).semantics { contentDescription=description }) {
+        PulseSwap(name, label = "Action icon", distance = 4) { Glyph(it) }
     }
 }
-@Composable fun DotChart(values: List<Double?>, modifier: Modifier=Modifier, selected: Int?=null, onSelect: ((Int)->Unit)?=null, bars: Boolean=false, description: String="Recorded values",domainMin:Double=0.0,domainMax:Double?=null,xPositions:List<Float>?=null) {
+@Composable fun DotWordmark(modifier:Modifier=Modifier,pulseVisible:Boolean=true){BrandLogo(modifier.size(160.dp,32.dp))}
+private val ringDotPositions = List(96) { index ->
+    val angle = 2 * PI * index / 96 - PI / 2
+    Offset(cos(angle).toFloat(), sin(angle).toFloat())
+}
+@Composable fun DotRing(progress: Double, modifier: Modifier=Modifier) {
+    val muted=MaterialTheme.colorScheme.outline
+    val motion = LocalAnimations.current && !LocalWidgetEditing.current
+    val target = progress.coerceIn(0.0, 1.0).toFloat()
+    val change = animateFloatAsState(target, PulseMotion.settle(motion), label = "Goal ring")
+    val accent = remember { Animatable(0f) }
+    var previous by remember { mutableFloatStateOf(target) }
+    LaunchedEffect(target, motion) {
+        val crossed = previous < 1f && target >= 1f
+        previous = target
+        if (crossed && motion) {
+            accent.snapTo(1f)
+            accent.animateTo(0f, PulseMotion.tween(true, PulseMotion.Celebration))
+        } else accent.snapTo(0f)
+    }
+    Canvas(modifier.semantics { contentDescription="Goal progress ${(progress*100).toInt()} percent" }) {
+        val r=size.minDimension*.45f; val dot=(r*.025f).coerceAtLeast(1f)
+        val edge = change.value.coerceIn(0f, 1f) * 96
+        ringDotPositions.forEachIndexed { i, position ->
+            val glow = accent.value * (1f - abs(i / 96f - (1f - accent.value)) * 9f).coerceAtLeast(0f)
+            drawCircle(lerp(muted, Red, (edge - i).coerceIn(0f, 1f)), dot * (1f + glow * .65f), center + position * r)
+        }
+    }
+}
+
+@Composable internal fun PulseProgress(progress: Float, modifier: Modifier = Modifier, trackColor: Color = ProgressIndicatorDefaults.linearTrackColor) {
+    val target = progress.takeIf(Float::isFinite)?.coerceIn(0f, 1f) ?: 0f
+    val motion = LocalAnimations.current && !LocalWidgetEditing.current
+    val fill = animateFloatAsState(target, PulseMotion.settle(motion), label = "Recorded progress")
+    LinearProgressIndicator(progress = { fill.value.coerceIn(0f, 1f) }, modifier = modifier, color = Red, trackColor = trackColor)
+}
+
+@Composable fun DotChart(values: List<Double?>, modifier: Modifier=Modifier, selected: Int?=null, onSelect: ((Int)->Unit)?=null, bars: Boolean=false, description: String="Recorded values",domainMin:Double=0.0,domainMax:Double?=null,xPositions:List<Float>?=null,onTap:((Int)->Unit)?=onSelect, revealData: Boolean=false) {
     val muted=MaterialTheme.colorScheme.outline; val text=MaterialTheme.colorScheme.onSurfaceVariant
     val max=domainMax ?: (values.filterNotNull().filter{it.isFinite()}.maxOrNull()?.coerceAtLeast(1.0) ?: 1.0)
-    fun chooseIndex(x:Float,width:Float)=if(xPositions!=null)xPositions.indices.minByOrNull{kotlin.math.abs(xPositions[it]-x/width)} ?: 0 else ((x/width)*values.size).toInt().coerceIn(0,values.lastIndex)
-    val input=if(onSelect==null || values.isEmpty()) Modifier else Modifier.pointerInput(values) {
-        fun choose(x: Float) { onSelect(chooseIndex(x,size.width.toFloat())) }
+    val motion = LocalAnimations.current
+    val populated = values.any { it != null }
+    val reveal = remember { Animatable(0f) }
+    LaunchedEffect(populated, motion, revealData) {
+        if (motion && populated && revealData) reveal.animateTo(1f, PulseMotion.tween(true, 375))
+        else reveal.snapTo(if (populated) 1f else 0f)
+    }
+    val dim = animateFloatAsState(if (selected == null) 0f else 1f, PulseMotion.tween(motion, PulseMotion.Selection), label = "Chart selection emphasis")
+    val marker = animateFloatAsState((selected ?: values.lastIndex).toFloat(), PulseMotion.settle(motion), label = "Selected chart reading")
+    val tapHandler = rememberUpdatedState(onTap)
+    val dragHandler = rememberUpdatedState(onSelect)
+    fun chooseIndex(x: Float, width: Float): Int {
+        val fraction = ((x - 7f) / (width - 14f).coerceAtLeast(1f)).coerceIn(0f, 1f)
+        return xPositions?.indices?.minByOrNull { kotlin.math.abs(xPositions[it] - fraction) }
+            ?: (fraction * values.size).toInt().coerceIn(0, values.lastIndex)
+    }
+    val input=if(onSelect==null || values.isEmpty()) Modifier else Modifier.pointerInput(values, xPositions) {
+        fun choose(x: Float) { tapHandler.value?.invoke(chooseIndex(x,size.width.toFloat())) }
         detectTapGestures { choose(it.x) }
-    }.pointerInput(values) { detectDragGestures { change,_ -> change.consume(); onSelect(chooseIndex(change.position.x,size.width.toFloat())) } }
+    }.pointerInput(values, xPositions) { detectHorizontalDragGestures { change,_ -> change.consume(); dragHandler.value?.invoke(chooseIndex(change.position.x,size.width.toFloat())) } }
     Canvas(modifier.then(input).semantics { contentDescription=description; if(onSelect!=null && values.isNotEmpty()) { customActions=listOf(CustomAccessibilityAction("Next value") { onSelect(((selected ?: -1)+1).coerceAtMost(values.lastIndex)); true },CustomAccessibilityAction("Previous value") { onSelect(((selected ?: 1)-1).coerceAtLeast(0)); true }) } }) {
         val w=size.width; val h=size.height-12f; val pad=7f
         for(row in 0..3) for(x in 0..(w/14).toInt()) drawCircle(muted,.8f,Offset(x*14f,h*row/3))
         val step=(w-pad*2)/values.size.coerceAtLeast(1)
         values.forEachIndexed { i,v -> if(v!=null) {
-            val x=if(xPositions!=null)pad+xPositions[i]*(w-pad*2) else pad+step*(i+.5f); val y=h-((v-domainMin)/(max-domainMin)).toFloat()*(h-8)
-            val col=if(selected==i || (selected==null && i==values.lastIndex)) Red else text
+            val x=if(xPositions!=null)pad+xPositions[i]*(w-pad*2) else pad+step*(i+.5f)
+            val y=h-((v-domainMin)/(max-domainMin)).toFloat()*(h-8)
+            val growth = if (revealData && motion) (reveal.value * 1.34f - .34f * (x / w)).coerceIn(0f, 1f) else 1f
+            if (growth <= 0f) return@forEachIndexed
+            val emphasis = (1f - abs(marker.value - i)).coerceIn(0f, 1f)
+            val col = lerp(text.copy(alpha = 1f - .38f * dim.value), Red, emphasis).let { it.copy(alpha = it.alpha * growth) }
             if(bars) {
-                var dy=h; while(dy>=y) { drawCircle(col,min(3.8f,step*.2f),Offset(x-min(4.8f,step*.3f),dy));drawCircle(col,min(3.8f,step*.2f),Offset(x+min(4.8f,step*.3f),dy)); dy-=9f }
+                var dy=h; while(dy>=h+(y-h)*growth) { drawCircle(col,min(3.8f,step*.2f),Offset(x-min(4.8f,step*.3f),dy));drawCircle(col,min(3.8f,step*.2f),Offset(x+min(4.8f,step*.3f),dy)); dy-=9f }
             } else {
                 drawCircle(col,2.8f,Offset(x,y))
                 if(i>0 && values[i-1]!=null) {
@@ -181,17 +274,13 @@ fun valueText(value: Double?, metric: Metric, imperial: Boolean=false): String {
                     repeat(n) { j -> val point=a+(b-a)*(j.toFloat()/n);drawCircle(col,3.5f,point-normal);drawCircle(col,3.5f,point+normal) }
                 }
             }
-            if(selected==i) drawCircle(col,6f,Offset(x,y),style=Stroke(1.5f))
+            if(dim.value > 0f && emphasis > 0f) drawCircle(Red.copy(alpha = dim.value * emphasis * growth), 4f + 2f * emphasis, Offset(x, if(bars) h+(y-h)*growth else y), style=Stroke(1.5f))
         } }
     }
 }
 @Composable fun StatusStrip(snapshot: HealthSnapshot, retry:(()->Unit)?=null) {
-    if(LocalDemo.current) BoxWithConstraints(Modifier.fillMaxWidth()) {
-        if(maxWidth<340.dp || androidx.compose.ui.platform.LocalDensity.current.fontScale>1.3f) Column(verticalArrangement=Arrangement.spacedBy(4.dp)){Label("●  DEMO MODE",color=Red);Label("SAMPLE DATA / NOT LIVE")}
-        else Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) { Label("●  DEMO MODE",color=Red); Label("SAMPLE DATA / NOT LIVE") }
-    }
-    else Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface,RoundedCornerShape(8.dp)).padding(12.dp)) {
-        Label(if(snapshot.loading) "SYNCING HEALTH CONNECT…" else snapshot.status.uppercase())
+    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface,RoundedCornerShape(8.dp)).padding(12.dp)) {
+        Label(if(snapshot.loading) "SYNCING…" else snapshot.status.uppercase())
         snapshot.synced?.let { Label("Last sync: ${it.atZone(java.time.ZoneId.systemDefault()).format(java.time.format.DateTimeFormatter.ofPattern("d MMM, HH:mm"))}") }
         snapshot.error?.let { Text(it,style=MaterialTheme.typography.bodySmall,color=Red) }
         if(!snapshot.loading && retry!=null) SmallAction("Refresh",onClick=retry)

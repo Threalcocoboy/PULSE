@@ -133,4 +133,28 @@ class ChallengeMakerUiTest {
         val static = compose.onNodeWithTag("static").captureToImage().asAndroidBitmap()
         assertTrue(animated.sameAs(static))
     }
+
+    @Test fun loadingChangesTheLogoPixelsAndRestoresTheStaticLogo() {
+        var loading by mutableStateOf(true)
+        compose.mainClock.autoAdvance = false
+        compose.setContent {
+            PulseTheme(Preferences(theme = "LIGHT", animations = true)) {
+                Column {
+                    BrandLogo(Modifier.size(160.dp, 32.dp).testTag("loading"), loading = loading)
+                    BrandLogo(Modifier.size(160.dp, 32.dp).testTag("static"))
+                }
+            }
+        }
+        val logo = compose.onNodeWithTag("loading")
+        compose.mainClock.advanceTimeBy(280)
+        val first = logo.captureToImage().asAndroidBitmap()
+        compose.mainClock.advanceTimeBy(360)
+        val second = logo.captureToImage().asAndroidBitmap()
+        assertFalse(first.sameAs(second))
+        compose.runOnIdle { loading = false }
+        compose.mainClock.advanceTimeByFrame()
+        assertTrue(logo.captureToImage().asAndroidBitmap().sameAs(
+            compose.onNodeWithTag("static").captureToImage().asAndroidBitmap()
+        ))
+    }
 }

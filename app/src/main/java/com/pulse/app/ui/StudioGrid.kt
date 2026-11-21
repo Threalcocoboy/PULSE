@@ -1,5 +1,6 @@
 package com.pulse.app.ui
 
+import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.*
@@ -18,13 +19,15 @@ import androidx.compose.ui.platform.*
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.*
 import com.pulse.app.core.*
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlin.math.*
 
 @Composable fun StudioGrid(
     layout: List<Widget>, editing: Boolean, selected: String?, scroll: ScrollState,
     viewportTop: Float, viewportHeight: Float, select: (String)->Unit, beginEdit: ()->Unit,
-    commit: (List<Widget>)->Unit, configure: (String)->Unit, openMetric: (Metric)->Unit,
+    commit: (List<Widget>)->Unit, configure: (String)->Unit, openMetric: (Metric)->Unit, interactive: Boolean = true,
+    haptic: () -> Unit = {},
     content: @Composable (Widget)->Unit
 ) {
     val editRef = rememberUpdatedState(editing)
@@ -37,6 +40,8 @@ import kotlin.math.*
     val selectRef = rememberUpdatedState(select)
     val beginEditRef = rememberUpdatedState(beginEdit)
     val openMetricRef = rememberUpdatedState(openMetric)
+    val hapticRef = rememberUpdatedState(haptic)
+    val motion = LocalAnimations.current
     var gestureLayout by remember { mutableStateOf<List<Widget>>(emptyList()) }
     var active by remember { mutableStateOf<String?>(null) }
     var kind by remember { mutableStateOf(StudioGesture.MOVE) }
@@ -69,17 +74,15 @@ import kotlin.math.*
             val baseline = gestureLayout
             val original = baseline.firstOrNull { it.id == active } ?: return
             if (kind == StudioGesture.MOVE) {
-                preview = AdaptiveFlow.pack(
-                    baseline, original.id,
-                    (original.column + delta.x / stepX).roundToInt(),
-                    (original.row + delta.y / stepY).roundToInt()
-                )
+                val column = (original.column + delta.x / stepX).roundToInt().coerceIn(0, AdaptiveFlow.COLUMNS - original.width)
+                val row = (original.row + delta.y / stepY).roundToInt().coerceAtLeast(0)
+                preview = if (column == original.column && row == original.row) baseline else AdaptiveFlow.pack(baseline, original.id, column, row)
             } else {
                 val live = StudioGestureRules.calculateLive(
                     original, delta.x, delta.y, stepX, stepY, gapPx, lastSize
                 )
                 lastSize = live.targetFootprint
-                preview = AdaptiveFlow.pack(
+                preview = if (lastSize == Footprint(original.width, original.height)) baseline else AdaptiveFlow.pack(
                     baseline.map { if (it.id == original.id) it.copy(width = lastSize.columns, height = lastSize.rows) else it },
                     original.id, original.column, original.row
                 )
@@ -96,8 +99,18 @@ import kotlin.math.*
         }
         val shown = preview ?: layout
         val rows = shown.maxOfOrNull { it.row + it.height } ?: 0
+        // Keep removed widgets mounted for their exit. The live layout remains the only input target.
+        var previous by remember { mutableStateOf(layout) }
+        val shownById = remember(shown) { shown.associateBy { it.id } }
+        val retained = if (motion && interactive) shown + previous.filter { it.id !in shownById } else shown
+        LaunchedEffect(layout, motion, interactive) {
+            if (motion && interactive && previous.any { old -> layout.none { it.id == old.id } }) delay(230)
+            previous = layout
+        }
+        val height by animateDpAsState((rowCell + gap) * rows, PulseMotion.settle(motion && active == null), label = "Grid height")
+        val entrance = animateFloatAsState(if (editing) .985f else 1f, PulseMotion.settle(motion), label = "Studio grid emphasis")
 
-        Box(Modifier.fillMaxWidth().height((rowCell + gap) * rows)) {
+        Box(Modifier.fillMaxWidth().height(if (active == null) height else (rowCell + gap) * rows)) {
             // Render potential grid destination ghost if actively resizing
             if (active != null && kind == StudioGesture.RESIZE) {
                 val targetW = preview?.firstOrNull { it.id == active }
@@ -116,8 +129,11 @@ import kotlin.math.*
                 }
             }
 
-            shown.forEach { w ->
+            retained.forEachIndexed { index, w ->
                 key(w.id) {
+                    val available = w.id in shownById
+                    val visibility = remember { MutableTransitionState(!motion || previous.any { it.id == w.id }) }
+                    visibility.targetState = available
                     val original = (if(active==w.id) gestureLayout else layout).firstOrNull { it.id == w.id } ?: w
                     val isCurrentActive = active == w.id
                     val moving = isCurrentActive && kind == StudioGesture.MOVE
@@ -128,41 +144,45 @@ import kotlin.math.*
                     val isPill = w.shape == WidgetShape.PILL
                     val widgetShape = w.shape.outline()
 
-                    val duration = if (LocalAnimations.current) PulseTokens.reflowMillis else 0
-                    val ax by animateDpAsState((cell + gap) * w.column, tween(duration), label = "col")
-                    val ay by animateDpAsState((rowCell + gap) * w.row, tween(duration), label = "row")
-
-                    // Live coordinates
-                    val x = if (moving) {
-                        with(density) { (original.column * stepX + delta.x).coerceIn(0f, (4 - original.width) * stepX).toDp() }
-                    } else if (resizing) {
-                        minOf((cell + gap) * original.column, gridWidth - with(density) { StudioGestureRules.calculateLive(original, delta.x, delta.y, stepX, stepY, gapPx, lastSize).widthPx.toDp() })
-                    } else ax
-
-                    val y = if (moving) {
-                        with(density) { (original.row * stepY + delta.y).coerceAtLeast(0f).toDp() }
-                    } else if (resizing) {
-                        (rowCell + gap) * original.row
-                    } else ay
-
-                    // Live dimensions during resize
                     val liveDims = if (resizing) {
                         StudioGestureRules.calculateLive(original, delta.x, delta.y, stepX, stepY, gapPx, lastSize)
                     } else null
 
-                    val currentWidth = if (resizing && liveDims != null) {
+                    // Live coordinates
+                    val targetX = if (moving) {
+                        with(density) { (original.column * stepX + delta.x).coerceIn(0f, (4 - original.width) * stepX).toDp() }
+                    } else if (resizing) {
+                        minOf((cell + gap) * original.column, gridWidth - with(density) { liveDims!!.widthPx.toDp() })
+                    } else (cell + gap) * w.column
+
+                    val targetY = if (moving) {
+                        with(density) { (original.row * stepY + delta.y).coerceAtLeast(0f).toDp() }
+                    } else if (resizing) {
+                        (rowCell + gap) * original.row
+                    } else (rowCell + gap) * w.row
+
+                    val targetWidth = if (liveDims != null) {
                         with(density) { liveDims.widthPx.toDp() }
                     } else {
                         (cell + gap) * w.width - gap
                     }
 
-                    val currentHeight = if (w.shape in setOf(WidgetShape.CIRCLE, WidgetShape.SQUARE)) {
-                        currentWidth // A CIRCLE MUST ALWAYS MAINTAIN 1:1 SQUARE DIMENSIONS
-                    } else if (resizing && liveDims != null) {
+                    val square = w.shape == WidgetShape.CIRCLE || w.shape == WidgetShape.SQUARE
+                    val targetHeight = if (square) {
+                        targetWidth
+                    } else if (liveDims != null) {
                         with(density) { liveDims.heightPx.toDp() }
                     } else {
                         (rowCell + gap) * w.height - gap
                     }
+                    val ax = animateDpAsState(targetX, PulseMotion.settle(motion && !isCurrentActive), label = "Widget column")
+                    val ay = animateDpAsState(targetY, PulseMotion.settle(motion && !isCurrentActive), label = "Widget row")
+                    val animatedWidth by animateDpAsState(targetWidth, PulseMotion.settle(motion && !resizing), label = "Widget width")
+                    val animatedHeight by animateDpAsState(targetHeight, PulseMotion.settle(motion && !resizing), label = "Widget height")
+                    val currentWidth = if (resizing) targetWidth else animatedWidth
+                    val currentHeight = if (square) currentWidth else if (resizing) targetHeight else animatedHeight
+                    val raised = animateFloatAsState(if (moving && motion) 1.055f else 1f, PulseMotion.settle(motion), label = "Lifted widget")
+                    val selection = animateFloatAsState(if (chosen) 1f else 0f, PulseMotion.tween(motion, PulseMotion.Selection), label = "Widget selection")
 
                     var rootY by remember { mutableFloatStateOf(0f) }
 
@@ -242,7 +262,10 @@ import kotlin.math.*
                                 }
 
                                 if (finished) {
-                                    preview?.let(commitRef.value)
+                                    preview?.takeIf { it != gestureLayout }?.let { change ->
+                                        commitRef.value(change)
+                                        hapticRef.value()
+                                    }
                                 }
                             } finally {
                                 if (activated) {
@@ -254,20 +277,28 @@ import kotlin.math.*
                         }
                     }
 
-                    Box(
-                        Modifier
-                            .reveal(layout.indexOfFirst{it.id==w.id})
-                            .offset(x, y)
+                    AnimatedVisibility(visibility,
+                        modifier = Modifier.offset {
+                            val x = if (isCurrentActive) targetX else ax.value
+                            val y = if (isCurrentActive) targetY else ay.value
+                            IntOffset(x.roundToPx(), y.roundToPx())
+                        }.zIndex(if (isCurrentActive) 5f else if (chosen) 2f else 0f),
+                        enter = if (motion) fadeIn(PulseMotion.tween(true)) + scaleIn(PulseMotion.settle(true), initialScale = .91f) else EnterTransition.None,
+                        exit = if (motion) fadeOut(PulseMotion.tween(true, 190)) + scaleOut(PulseMotion.tween(true, 200), targetScale = .91f) else ExitTransition.None
+                    ) { Box(
+                        Modifier.reveal(index + 3, rise = 16, scale = .97f)
                             .size(currentWidth, currentHeight)
-                            .zIndex(if (isCurrentActive) 5f else if (chosen) 2f else 0f)
                             .onGloballyPositioned { rootY = it.positionInRoot().y }
                             .graphicsLayer {
-                                shadowElevation = if (chosen || isCurrentActive) 4.dp.toPx() else 0f
+                                scaleX = raised.value * entrance.value
+                                scaleY = scaleX
+                                shadowElevation = (selection.value * 4.dp.toPx()) + (raised.value - 1f) * 100.dp.toPx()
                                 shape = widgetShape
                                 clip = true
                             }
-                            .then(input)
+                            .then(if (interactive && available) input else Modifier.clearAndSetSemantics { })
                             .semantics {
+                                if (!interactive || !available) return@semantics
                                 contentDescription = "${w.metric.label} widget"
                                 onClick(if (editing) "Configure widget" else "Open ${w.metric.label} details") {
                                     if (editRef.value) configure(w.id) else openMetric(w.metric)
@@ -361,7 +392,7 @@ import kotlin.math.*
                                 }
                             }
                         }
-                    }
+                    } }
                 }
             }
         }

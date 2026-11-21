@@ -7,28 +7,39 @@ import kotlinx.coroutines.*
 import org.json.*
 import java.time.*
 
-class GarminRepository(private val api: GarminApi,private val dao: HealthDao): HealthDataRepository {
+class GarminRepository(private val api: GarminApi,private val dao: HealthDao, private val scope: String = "GARMIN_ACCOUNT_LOCAL",
+    private val bindAccount: ((String) -> Unit)? = null): HealthDataRepository {
     suspend fun cached(): HealthSnapshot=withContext(Dispatchers.IO) {
-        val rows=dao.garminDays();val days=rows.mapNotNull{runCatching{GarminMapping.decode(it.payload,true)}.getOrNull()}
-        HealthSnapshot(days,"Garmin · cached records",rows.maxOfOrNull{it.synced}?.let(Instant::ofEpochMilli),available=days.flatMap{it.readings.filterValues{r->r.value!=null}.keys}.toSet(),loading=true,mode=DataMode.GARMIN)
+        val rows=dao.garminDays(scope);val days=rows.mapNotNull{runCatching{GarminMapping.decode(it.payload,true)}.getOrNull()}
+        HealthSnapshot(days,"Garmin · cached records",rows.maxOfOrNull{it.synced}?.let(Instant::ofEpochMilli),available=days.flatMap{it.readings.filterValues{r->r.value!=null}.keys}.toSet(),loading=true,mode=DataMode.GARMIN,sourceScope=scope)
     }
-    override suspend fun load(today: LocalDate): HealthSnapshot=withContext(Dispatchers.IO) {
-        val now=Instant.now();val recent=today.minusDays(30);val historyStart=today.minusDays(89)
+    override suspend fun load(today: LocalDate): HealthSnapshot = load(today, background = false)
+
+    suspend fun load(today: LocalDate, background: Boolean): HealthSnapshot=withContext(Dispatchers.IO) {
+        val now = Instant.now()
+        val recent = today.minusDays(if (background) 7 else 30)
+        val historyStart = if (background) recent else today.minusDays(89)
         try {
-            val days=GarminMapping.summaries(api.json("/usersummary-service/v2/dailysummaries?startDate=$historyStart&endDate=$today"),now).toMutableMap()
+            val summaries = api.json("/usersummary-service/v2/dailysummaries?startDate=$historyStart&endDate=$today")
+            val days = GarminMapping.summaries(summaries, now).toMutableMap()
+            bindAccount?.let { bind -> GarminMapping.accountFingerprint(summaries)?.let(bind) }
             val errors=mutableListOf<String>();val unavailable=mutableSetOf<Metric>();val failed=mutableSetOf<Metric>()
-            val prior=dao.garminDays().mapNotNull{runCatching{GarminMapping.decode(it.payload,true)}.getOrNull()}.associateBy{it.date}
+            val prior=dao.garminDays(scope).mapNotNull{runCatching{GarminMapping.decode(it.payload,true)}.getOrNull()}.associateBy{it.date}
             days.replaceAll { date,day -> GarminMapping.preserveOutsideDetailWindow(day,prior[date],recent,today) }
             suspend fun optional(metrics: Set<Metric>,read: suspend ()->Unit) {
                 try{read()}catch(e: CancellationException){throw e}catch(e: GarminFailure){
-                    if(e.code in setOf(GarminError.AUTHORIZATION,GarminError.RATE_LIMIT,GarminError.KEY_REQUIRED))throw e
-                    errors+=e.message.orEmpty();if(e.code==GarminError.UNSUPPORTED)unavailable+=metrics else failed+=metrics
+                    if(e.code == GarminError.KEY_REQUIRED)throw e
+                    errors+=e.message.orEmpty();if(e.code in setOf(GarminError.UNSUPPORTED, GarminError.AUTHORIZATION))unavailable+=metrics else failed+=metrics
                 }
             }
             optional(setOf(Metric.SLEEP,Metric.SLEEP_STAGES)){GarminMapping.sleep(api.json("/sleep-service/sleep/dailySleepSummariesByDate?startDate=$recent&endDate=$today"),days,now)}
             optional(setOf(Metric.HRV)){GarminMapping.hrv(api.json("/hrv-service/hrv/daily/$recent/$today"),days,now)}
-            optional(setOf(Metric.HEART)){GarminMapping.heart(api.json("/wellness-service/wellness/dailyHeartRate?date=$today"),days,now)}
-            optional(setOf(Metric.ACTIVITIES)){
+            optional(setOf(Metric.HEART)){
+                for (date in listOf(today.minusDays(1), today)) {
+                    GarminMapping.heart(api.json("/wellness-service/wellness/dailyHeartRate?date=$date"),days,now)
+                }
+            }
+            optional(setOf(Metric.ACTIVITIES,Metric.WORKOUT_DURATION)){
                 val records=mutableListOf<JSONObject>();var offset=0;var page: JSONArray
                 do {
                     page=api.json("/activitylist-service/activities/search/activities?start=$offset&limit=99&startDate=$recent&endDate=$today&excludeChildren=true") as? JSONArray ?: throw GarminFailure(GarminError.MALFORMED)
@@ -40,16 +51,25 @@ class GarminRepository(private val api: GarminApi,private val dao: HealthDao): H
             unavailable.forEach{m->days.replaceAll{_,d->d.copy(readings=d.readings+(m to Reading(state=DataState.UNSUPPORTED)))}}
             failed.forEach{m->days.replaceAll{date,d->
                 val old=prior[date];val reading=old?.readings?.get(m)?.takeIf{it.value!=null}?.copy(state=DataState.STALE) ?: Reading(state=DataState.ERROR)
-                d.copy(readings=d.readings+(m to reading),sleepStages=if(m==Metric.SLEEP_STAGES)old?.sleepStages.orEmpty()else d.sleepStages,activities=if(m==Metric.ACTIVITIES)old?.activities.orEmpty()else d.activities)
+                d.copy(readings=d.readings+(m to reading),sleepStages=if(m==Metric.SLEEP_STAGES)old?.sleepStages.orEmpty()else d.sleepStages,sleepStart=if(m==Metric.SLEEP)old?.sleepStart else d.sleepStart,sleepEnd=if(m==Metric.SLEEP)old?.sleepEnd else d.sleepEnd,activities=if(m==Metric.ACTIVITIES)old?.activities.orEmpty()else d.activities,workoutsRead=if(m==Metric.ACTIVITIES)false else d.workoutsRead)
             }}
             // Separate table: Garmin and Health Connect are never added together.
-            dao.saveGarmin(days.values.filter{it.date<=today}.map{GarminDayEntity(it.date.toString(),"GARMIN_ACCOUNT_LOCAL",GarminMapping.encode(it),now.toEpochMilli())})
-            val all=dao.garminDays().mapNotNull{runCatching{GarminMapping.decode(it.payload)}.getOrNull()}
-            HealthSnapshot(all,"Garmin Personal API · synchronized",now,GarminMapping.supported-unavailable,error=errors.firstOrNull(),mode=DataMode.GARMIN)
+            dao.saveGarmin(days.values.filter{it.date<=today}.map{GarminDayEntity(it.date.toString(),scope,GarminMapping.encode(it),now.toEpochMilli())})
+            val all=dao.garminDays(scope).mapNotNull { runCatching { GarminMapping.decode(it.payload) }.getOrNull() }.map { day ->
+                if (unavailable.isEmpty()) day else day.copy(readings = day.readings + unavailable.associateWith {
+                    Reading(state = DataState.UNSUPPORTED)
+                })
+            }
+            HealthSnapshot(all,"Garmin Personal API · synchronized",now,GarminMapping.supported-unavailable,error=errors.firstOrNull(),mode=DataMode.GARMIN,access=if(errors.isEmpty()) ProviderAccess.CONNECTED else ProviderAccess.PARTIAL,sourceScope=scope)
         }catch(e: CancellationException){throw e}catch(e: Exception) {
-            val cached=dao.garminDays();val days=cached.mapNotNull{runCatching{GarminMapping.decode(it.payload,true)}.getOrNull()}
+            val cached=dao.garminDays(scope);val days=cached.mapNotNull{runCatching{GarminMapping.decode(it.payload,true)}.getOrNull()}
             HealthSnapshot(days,if(days.isEmpty())"Garmin is not synchronized"else"Garmin · cached records",cached.maxOfOrNull{it.synced}?.let(Instant::ofEpochMilli),
-                available=days.flatMap{it.readings.filterValues{r->r.value!=null}.keys}.toSet(),error=(e as? GarminFailure)?.message ?: "Garmin synchronization failed. Retry when connected.",mode=DataMode.GARMIN)
+                available=days.flatMap{it.readings.filterValues{r->r.value!=null}.keys}.toSet(),error=(e as? GarminFailure)?.message ?: "Garmin synchronization failed. Retry when connected.",mode=DataMode.GARMIN, sourceScope=scope,
+                access=when((e as? GarminFailure)?.code) {
+                    GarminError.KEY_REQUIRED -> ProviderAccess.DISCONNECTED
+                    GarminError.AUTHORIZATION -> ProviderAccess.DENIED
+                    else -> ProviderAccess.ERROR
+                })
         }
     }
 }

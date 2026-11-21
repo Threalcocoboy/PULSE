@@ -27,7 +27,14 @@ class HealthMathTest {
     @Test fun overlappingSleepIsMerged(){val start=Instant.parse("2026-11-01T22:00:00Z");assertEquals(8.0,HistoryMath.sleepHours(listOf(start to start.plusSeconds(8*3600),start.plusSeconds(3600) to start.plusSeconds(4*3600))),0.0)}
     @Test fun futureMonthIsLockedAndDateIsEngraved(){val result=Achievements.calculate(YearMonth.of(2026,12),emptyList(),LocalDate.of(2026,11,5));assertEquals("FUTURE",result.state);assertEquals("12/26",result.engraving);assertEquals(Season.WINTER,result.season)}
     @Test fun seasonalMapping(){val today=LocalDate.of(2026,11,5);listOf(2 to Season.WINTER,4 to Season.SPRING,8 to Season.SUMMER,11 to Season.AUTUMN).forEach{(m,s)->assertEquals(s,Achievements.calculate(YearMonth.of(2026,m),emptyList(),today).season)}}
-    @Test fun demoIsDeterministicAndNoFutureRecords(){val date=LocalDate.of(2026,11,5);val a=DemoData.snapshot(date);val b=DemoData.snapshot(date);assertEquals(a,b);assertTrue(a.days.all{it.date<=date});assertFalse(a.days.last().complete)}
+    @Test fun legacyDemoPreferenceBecomesDisconnectedAndKeepsCompletedSetupAndGoals() {
+        val migrated = PreferencesCodec.decode("v1|true|DEMO|8000|7.5|LIGHT|false|true|true|false")
+        assertTrue(migrated.onboarded)
+        assertEquals(DataMode.NONE, migrated.mode)
+        assertEquals(8000, migrated.stepGoal)
+        assertEquals("LIGHT", migrated.theme)
+        assertEquals(migrated, PreferencesCodec.decode(PreferencesCodec.encode(migrated)))
+    }
     @Test fun preferencesRoundTripAllBehavior(){val p=Preferences(true,DataMode.HEALTH_CONNECT,8000,7.5,"LIGHT",false,false,false,true);assertEquals(p,PreferencesCodec.decode(PreferencesCodec.encode(p)))}
     @Test fun preferencesRejectCorruptValues(){assertEquals(Preferences(),PreferencesCodec.decode("broken"));val p=Preferences(stepGoal=-1,sleepGoal=Double.NaN,theme="BAD").sanitized();assertEquals(100,p.stepGoal);assertEquals(8.0,p.sleepGoal,0.0);assertEquals("DARK",p.theme)}
     @Test fun goalChangeDoesNotAffectMonthlyThreshold(){val before=Preferences();val after=before.copy(stepGoal=20000);assertNotEquals(before.stepGoal,after.stepGoal);assertEquals(Tier.SILVER,Achievements.tier(150000))}

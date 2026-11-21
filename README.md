@@ -1,34 +1,85 @@
-# PULSE
+<div align="center">
+  <img src="app/src/main/res/drawable-nodpi/pulse_logo.png" alt="PULSE" width="340">
+  <h1>PULSE</h1>
+  <p><strong>Your health. Your way.</strong></p>
+  <p>A customizable Android health dashboard built around your data, your goals and your daily routine.</p>
+  <img alt="Android 9+" src="https://img.shields.io/badge/Android-9%2B-202020?style=flat-square">
+  <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-Android-202020?style=flat-square">
+  <img alt="Jetpack Compose" src="https://img.shields.io/badge/Jetpack-Compose-CB2437?style=flat-square">
+</div>
 
-A native Kotlin / Jetpack Compose Android health application. Version 0.3.0 audits the AI Studio additions, fixes Studio interactions, and adds meaningful achievement artwork, combined filters and durable monthly history. See the [implementation report](docs/POST_AI_AUDIT_REPORT.md) and the [interaction, monthly badges and onboarding polish report](docs/POLISH_PASS_REPORT.md).
+## Find your rhythm
 
-## Build
+| | |
+| --- | --- |
+| **Modular dashboard** | Arrange, resize and configure the widgets you want in PULSE Studio. |
+| **PULSE Modes** | Save dashboard layouts for different parts of your day and switch between them. |
+| **History** | Explore daily and longer-term trends in dot-based charts and open detailed records where available. |
+| **Goals** | Set personal targets for the health metrics available from your source. |
+| **Challenges** | Create manual or health-tracked challenges and follow their progress. |
+| **Achievements** | Earn badges and monthly step medals as you make progress. |
+| **Health Connect** | Read supported Android health measurements with the permissions you choose. |
+| **Privacy** | Your health records stay under your control. PULSE processes them on your device. |
 
-Requirements: Android SDK platform 37, JDK 17+ (tested with Studio's JDK 21), network access for first dependency resolution. The Gradle wrapper pins 9.3.1. Minimum Android 9 / API 28; target API 37. Android 9 can explore demo data even when Health Connect is unavailable.
+## Screenshots
 
-1. Open this folder in Android Studio, or set `JAVA_HOME` and put `sdk.dir=...` in untracked `local.properties`.
-2. Run `./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug` (`.\gradlew.bat` on Windows).
-3. Default APK: `app/build/outputs/apk/debug/app-debug.apk`. The verified delivery copy is `dist/PULSE-debug.apk` after the final verification run.
+<div align="center">
+  <img src="docs/screenshots/home.png" alt="Home dashboard" width="174">
+  <img src="docs/screenshots/modes.png" alt="PULSE Modes selector" width="174">
+  <img src="docs/screenshots/history.png" alt="History and its dot chart" width="174">
+</div>
 
-On Windows cloud-synced checkouts, optionally set `PULSE_BUILD_ROOT` to an absolute local directory outside OneDrive before building. All app build outputs, including tests/lint/APK, then go there. Source and Room schema stay in the repository.
+These are Android emulator captures with health providers disconnected. The [full gallery](docs/screenshots/README.md) includes Goals, Challenges, Achievements and widget customization.
 
-## Use
+## Health integrations
 
-- Complete onboarding with demo data or Health Connect. Garmin can be configured in Settings → Devices & Data → Garmin Personal API → Import key file (or Enter key).
-- Home has a settings icon and three primary tabs: History, centered Home, and Collection.
-- Long press and continue dragging without lifting to move a widget. A stationary long press only enters edit mode. A later tap opens configuration. Two fingers scroll the dashboard in edit mode; one finger manipulates widgets. While editing, drag its body directly; tap to configure. Drag the selected lower-right two-arrow handle to resize. The editor previews changes locally; Save widget commits one undoable change and dismissing cancels. Configure also offers exact dimensions. Add opens a compact metric/shape/size picker; Add inserts the configured widget near the top for subsequent dragging or resizing. Add/remove, undo/redo and default restoration remain available. Saved layouts automatically compact.
-- History has 7/30/90-day and 12-month views, touch inspection, metric selection, period comparisons and a daily calendar.
-- Collection shows 36 lifetime achievements and monthly step milestones, with combined status/category filters, progress and dated details. Swipe between monthly badges and open See full year for the twelve-month overview. Repeat earn counts and dated history retain independent monthly instances. Awards are retained separately per source; demo awards stay memory-only.
-- Onboarding and Settings offer selectable goal sliders. The Goals widget shows multiple goals, including weekly workout targets where supported. Settings persist units, theme, motion, haptics, insights and source. Privacy offers JSON export and confirmed local deletion.
+**Health Connect** reads supported records where Health Connect is available. Metrics depend on the records and permissions available on your device.
 
-## Data honesty
+**Garmin Personal API** is an optional connection for people with their own Garmin Personal API key. PULSE connects directly to Garmin over HTTPS.
 
-Demo samples stay labeled and memory-only. Health Connect reads steps, distance, timestamped heart samples, resting heart, HRV, total calories, exercise and sleep/stages where granted and supplied. See the [coverage inventory](docs/HEALTH_CONNECT_COVERAGE.md). Garmin Personal API supports steps, step distance, resting/sampled heart rate, sleep/stage totals, stress, Body Battery, HRV, calories, intensity minutes and activities when present. Sources have separate caches and never silently fall back or double-count.
+**Google Health · Coming soon.** Sync is paused pending verification. Existing local imports stay on the device.
 
-Garmin keys are imported only at runtime and encrypted using Android Keystore. `garmin.txt` is ignored: never commit it, add it to resources/BuildConfig, or include it in an APK. Exports exclude credentials. Internet permission is used for direct official Garmin requests; no analytics or external AI receives records. Native imports were verified against a real account in the emulator. This Personal API flow is for the owner's personal use.
+## Your data belongs to you
 
-Optional quiet progress notifications update after real foreground or permitted periodic imports; they are not continuous monitoring. Sleep stages are available as totals and recorded night windows, with exact stage timelines still deferred. Health Connect refreshes at startup/resume and on Home return, and supports optional hourly WorkManager refresh when background read access is granted. Optional history access imports up to one year, including timestamp-mapped heart-rate samples. Real final medals still require confirmed coverage; partial imported months remain incomplete. See [known issues](docs/KNOWN_ISSUES.md), [precise mappings](docs/DATA_INTEGRATION.md), and [verification](docs/POST_AI_AUDIT_REPORT.md).
+PULSE has no developer-hosted health-record service. It processes measurements locally and uses no ads, advertising profiles or hidden analytics. Android manages Health Connect permissions. Optional provider access and GitHub update checks contact their respective services. Exporting data or sharing a medal uses Android's share sheet.
 
-Follow-up preview, badge, refresh and Studio fixes: [report](docs/FOLLOWUP_REPORT.md).
+## Install and update
 
-Latest cohesive UX, brand motion, onboarding and data refinement: [implementation and verification report](docs/OVERHAUL_REPORT.md).
+The first signed public APK is pending. Once available, use the APK from the repository's Releases tab on Android 9 or later. Compare the APK's SHA-256 with the value in the release's checksum file before opening it. Android may ask you to allow installs from the app you used to open the APK.
+
+In an official GitHub build, open **More options → Check for updates**. PULSE checks stable releases for a higher Android build number and verifies the download's SHA-256, package identity, Android compatibility and signing certificate. You approve installation in Android. A build distributed through Google Play uses Google Play's update flow.
+
+Updates require the same signing identity as the installed APK. See [release and migration instructions](docs/RELEASING.md) if you already use a development build.
+
+## Build from source
+
+Install JDK 17 or a compatible newer version, Android SDK platform 37 and Android build tools 37.0.0. Set your local SDK path in `local.properties` or configure Android Studio. Clone the repository and run the checked-in wrapper.
+
+```bash
+./gradlew :app:assembleGithubDebug :app:testGithubDebugUnitTest :app:lintGithubDebug
+```
+
+On Windows run `gradlew.bat` with the same tasks. The APK is created in `app/build/outputs/apk/github/debug/`. The `play` flavor builds separately and uses Google Play for updates.
+
+## Architecture
+
+- Kotlin and Jetpack Compose render the dashboard, History, Collection and Settings.
+- Room caches provider health records. DataStore holds preferences, dashboard modes and challenge state.
+- Health Connect and Garmin adapters map permitted provider data to the PULSE domain model. WorkManager schedules eligible provider refreshes.
+- Distribution-specific update integrations select GitHub Releases or Google Play.
+
+Read the [architecture notes](docs/ARCHITECTURE.md) and [data flow review](docs/PRIVACY_REVIEW.md).
+
+## Roadmap
+
+Google Health can return once verification and release requirements are complete. The first public release establishes the signed APK distribution and update path.
+
+## Contributing and security
+
+See the [contribution guide](CONTRIBUTING.md) for local setup and safe test data. Report security concerns privately as described in the [security policy](SECURITY.md).
+
+## Legal, license and credits
+
+- [Privacy Policy](PRIVACY.md) and [Terms of Service](TERMS.md) are included in the app.
+- The PULSE source has no project-wide license on file. Public visibility alone does not grant reuse or redistribution rights.
+- PULSE uses AndroidX, Jetpack Compose, Kotlin, Room and Health Connect. See [third-party notices](NOTICE.md) for licensing information.

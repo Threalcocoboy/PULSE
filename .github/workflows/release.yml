@@ -1,0 +1,98 @@
+name: GitHub APK release
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Request publication after signed artifact review
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pulse-github-release
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    uses: ./.github/workflows/android.yml
+  sign:
+    if: github.repository_owner_id == '340643353' && startsWith(github.ref, 'refs/tags/v')
+    needs: verify
+    runs-on: ubuntu-24.04
+    environment: github-signing
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify destination and release tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main
+          [[ "$GITHUB_REF_NAME" =~ ^v[0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6}$ ]]
+          test "$(gh api repos/THREALCOCOBOY/PULSE --jq '.owner.id == 340643353 and (.full_name | ascii_downcase) == "threalcocoboy/pulse" and .visibility == "public" and .default_branch == "main"')" = true
+      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Verify Gradle wrapper and install Android SDK
+        run: |
+          echo '497c8c2a7e5031f6aa847f88104aa80a93532ec32ee17bdb8d1d2f67a194a9c7  gradle/wrapper/gradle-wrapper.jar' | sha256sum --check
+          sdkmanager 'platforms;android-37.0' 'build-tools;37.0.0'
+      - name: Build signed APK
+        env:
+          PULSE_KEYSTORE_BASE64: ${{ secrets.PULSE_KEYSTORE_BASE64 }}
+          PULSE_KEYSTORE_PASSWORD: ${{ secrets.PULSE_KEYSTORE_PASSWORD }}
+          PULSE_KEY_ALIAS: ${{ secrets.PULSE_KEY_ALIAS }}
+          PULSE_KEY_PASSWORD: ${{ secrets.PULSE_KEY_PASSWORD }}
+          PULSE_GITHUB_REPOSITORY_VERIFIED: 'true'
+        run: |
+          test -n "$PULSE_KEYSTORE_BASE64"
+          test -n "$PULSE_KEYSTORE_PASSWORD"
+          test -n "$PULSE_KEY_ALIAS"
+          test -n "$PULSE_KEY_PASSWORD"
+          umask 077
+          export PULSE_KEYSTORE_PATH="$RUNNER_TEMP/pulse-release.keystore"
+          trap 'rm -f "$PULSE_KEYSTORE_PATH"' EXIT
+          printf '%s' "$PULSE_KEYSTORE_BASE64" | base64 --decode > "$PULSE_KEYSTORE_PATH"
+          unset PULSE_KEYSTORE_BASE64
+          bash gradlew --no-daemon --no-configuration-cache :app:assembleGithubRelease
+      - name: Verify APK and package release files
+        env:
+          PULSE_SIGNER_SHA256: ${{ vars.PULSE_SIGNER_SHA256 }}
+        run: bash tools/verify-release-apk.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: signed-github-release
+          path: release-output/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    if: inputs.publish
+    needs: sign
+    runs-on: ubuntu-24.04
+    environment: github-release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: signed-github-release
+      - name: Verify uploaded digest and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha256sum --check --strict SHA256SUMS.txt
+          read -r expected name < SHA256SUMS.txt
+          gh release create "$GITHUB_REF_NAME" "$name" SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" \
+            --verify-tag --draft --title "PULSE ${GITHUB_REF_NAME#v}" --notes-file RELEASE_NOTES.md
+          release_id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME" --jq '.id')
+          actual=$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id/assets" \
+            --jq ".[] | select(.name == \"$name\") | .digest")
+          test "$actual" = "sha256:$expected"
+          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest

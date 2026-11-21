@@ -1,10 +1,21 @@
 package com.pulse.app
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.room.Room
+import com.pulse.app.core.*
 import com.pulse.app.data.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
+import java.io.File
+import java.util.UUID
 class OverhaulPersistenceTest {
  @Test fun pendingUnlockSurvivesReopenAndAcknowledgementIsDurable()=runBlocking {
  val c=InstrumentationRegistry.getInstrumentation().targetContext;val name="overhaul-unlock-test.db";c.deleteDatabase(name)
@@ -17,4 +28,35 @@ class OverhaulPersistenceTest {
 
  @Test fun installedDatabaseOpensAtVersionFourWithoutRecreatingIt()=runBlocking{val c=InstrumentationRegistry.getInstrumentation().targetContext;val db=PulseDatabase.open(c);try{db.health().achievements("OVERHAUL_READ_ONLY_PROBE");assertEquals(4,db.openHelper.readableDatabase.version)}finally{db.close()}}
 
+ @Test fun dashboardMigrationRunsOnceAndKeepsSelectionsAndEditsAfterReopening() = runBlocking {
+     val context = InstrumentationRegistry.getInstrumentation().targetContext
+     val file = File(context.cacheDir, "modes-${UUID.randomUUID()}.preferences_pb")
+     var job = SupervisorJob()
+     fun open() = PreferenceDataStoreFactory.create(scope = CoroutineScope(Dispatchers.IO + job), produceFile = { file })
+     val widget = Widget("my-steps", Metric.STEPS, WidgetShape.CIRCLE, column = 2, row = 3, showTrend = false)
+     val prefs = Preferences(onboarded = true, stepGoal = 7050, insights = false)
+     try {
+         val legacyStore = open()
+         legacyStore.edit {
+             it[stringPreferencesKey("settings_v1")] = PreferencesCodec.encode(prefs)
+             it[stringPreferencesKey("layout_v1")] = LayoutCodec.encode(listOf(widget))
+         }
+         val store = PreferenceStore(legacyStore)
+         val migrated = store.dashboardModes()
+         assertEquals(listOf(widget), migrated.active.widgets)
+         assertFalse(migrated.active.showObservations)
+         val changed = migrated.select("fitness").update("fitness") { it.copy(widgets = emptyList()) }
+         store.saveModes(changed)
+         job.cancelAndJoin()
+         job = SupervisorJob()
+         val reopened = PreferenceStore(open())
+         assertEquals(changed, reopened.dashboardModes())
+         assertEquals(listOf(widget), reopened.dashboardModes().select("everyday").active.widgets)
+         assertEquals(prefs, reopened.preferences.first())
+     } finally {
+         job.cancelAndJoin()
+         file.delete()
+     }
+     Unit
+ }
 }

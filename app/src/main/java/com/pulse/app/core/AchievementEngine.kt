@@ -402,10 +402,15 @@ object AchievementEngine {
      */
     fun evaluate(snapshot: HealthSnapshot, preferences: Preferences, today: LocalDate = LocalDate.now()): List<UserAchievement> {
         val days = HistoryMath.unique(snapshot.days).filter { it.date <= today }.map { day ->
-            day.copy(readings = day.readings.filterValues { r -> r.state in setOf(DataState.READY, DataState.STALE) && r.value?.let { it.isFinite() && it >= 0 } == true })
+            val readings = day.readings.filterValues { r ->
+                (r.state == DataState.READY || r.state == DataState.STALE && snapshot.mode != DataMode.GOOGLE_HEALTH) &&
+                    r.value?.let { it.isFinite() && it >= 0 } == true
+            }
+            day.copy(readings = readings, activities =
+                if (snapshot.mode == DataMode.GOOGLE_HEALTH && Metric.ACTIVITIES !in readings) emptyList() else day.activities)
         }.sortedBy { it.date }
-        val stepGoal = preferences.stepGoal.toDouble()
-        val sleepGoal = preferences.sleepGoal
+        val stepGoal = Goals.indicator(Metric.STEPS, preferences) ?: preferences.stepGoal.toDouble()
+        val sleepGoal = Goals.indicator(Metric.SLEEP, preferences) ?: preferences.sleepGoal
 
         // Extract all recorded activities across history
         val allActivities = days.flatMap { day ->

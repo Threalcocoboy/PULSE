@@ -11,7 +11,7 @@ import javax.net.ssl.HttpsURLConnection
 
 enum class GarminError { KEY_REQUIRED, AUTHORIZATION, RATE_LIMIT, NETWORK, MALFORMED, UNSUPPORTED, SERVER }
 class GarminFailure(val code: GarminError,val retryAfterSeconds: Long?=null): Exception(when(code) {
-    GarminError.KEY_REQUIRED->"Import a Garmin Personal API key to connect."
+    GarminError.KEY_REQUIRED->"Enter a Garmin Personal API key to connect."
     GarminError.AUTHORIZATION->"Garmin rejected the credential. Replace an invalid, expired or revoked key."
     GarminError.RATE_LIMIT->"Garmin rate limit reached. Wait before refreshing again."
     GarminError.NETWORK->"Garmin could not be reached. Check the connection and retry."
@@ -51,8 +51,12 @@ class GarminApi(private val transport: GarminTransport,private val key:()->Strin
     private var token: GarminToken?=null
     private var retryUntil: Instant?=null
     private val mutex=Mutex()
-    suspend fun validateKey(candidate:String){GarminApi(transport,{candidate},clock).authorize()}
-    fun reset(){token=null;retryUntil=null}
+    suspend fun validateKey(candidate: String, date: java.time.LocalDate = java.time.LocalDate.now()): String? {
+        val verification = GarminApi(transport, { candidate }, clock)
+        val summaries = verification.json("/usersummary-service/v2/dailysummaries?startDate=${date.minusDays(6)}&endDate=$date")
+        GarminMapping.summaries(summaries, clock())
+        return GarminMapping.accountFingerprint(summaries)
+    }
     suspend fun json(path: String): Any = mutex.withLock {
         retryUntil?.let {if(clock().isBefore(it))throw GarminFailure(GarminError.RATE_LIMIT,java.time.Duration.between(clock(),it).seconds)}
         var bearer=authorize()

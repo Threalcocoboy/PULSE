@@ -1,28 +1,121 @@
 package com.pulse.app.integration
-import android.app.*
-import android.content.*
+
+import android.Manifest
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
-import com.pulse.app.*
+import com.pulse.app.MainActivity
+import com.pulse.app.R
 import com.pulse.app.core.*
+import java.text.NumberFormat
 import java.time.*
 import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
+
 object ProgressNotifications {
- const val CHANNEL="pulse_progress"
- fun cancel(c:Context){NotificationManagerCompat.from(c).cancel(401)}
- fun lines(p:Preferences,s:HealthSnapshot):List<String>{val today=s.days.firstOrNull{it.date==LocalDate.now()};return p.notificationMetrics.map{m->val reading=today?.readings?.get(m);val v=reading?.takeIf{it.state in setOf(DataState.READY,DataState.STALE)}?.value;val text=when{v==null->"Unavailable";m==Metric.SLEEP->"$v h";m==Metric.DISTANCE->String.format("%.2f %s",if(p.imperial)v*.621371 else v,if(p.imperial)"mi" else "km");else->"${v.toInt()} ${m.unit}"};"${m.label}: $text"+if(m==Metric.STEPS&&v!=null)" / ${p.stepGoal} goal" else ""}}
- fun publish(c:Context,p:Preferences,s:HealthSnapshot){
- if(!p.progressNotifications||p.mode==DataMode.DEMO||s.mode!=p.mode||s.synced==null||s.loading){cancel(c);return}
- if(s.error?.contains("permission",ignoreCase=true)==true||s.days.none{day->day.date==LocalDate.now()&&p.notificationMetrics.any{m->day.readings[m]?.let{it.value!=null&&it.state in setOf(DataState.READY,DataState.STALE)}==true}}){cancel(c);return}
- if(Build.VERSION.SDK_INT>=33&&ContextCompat.checkSelfPermission(c,android.Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED){cancel(c);return}
- val manager=c.getSystemService(NotificationManager::class.java);manager.createNotificationChannel(NotificationChannel(CHANNEL,"PULSE periodic progress",NotificationManager.IMPORTANCE_LOW))
- val intent=PendingIntent.getActivity(c,0,Intent(c,MainActivity::class.java),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
- val lines=lines(p,s);val time=s.synced.atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("d MMM HH:mm"))
- val cached=s.error!=null||Duration.between(s.synced,Instant.now()).toHours()>=2
- val notification=NotificationCompat.Builder(c,CHANNEL).setSmallIcon(R.drawable.ic_pulse).setContentTitle(if(cached)"PULSE · cached progress" else "PULSE · today").setContentText(lines.joinToString(" · ")).setStyle(NotificationCompat.BigTextStyle().bigText(lines.joinToString("\n")+"\nUpdated $time · periodic refresh")).setContentIntent(intent).setOnlyAlertOnce(true).setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setOngoing(false).setWhen(s.synced.toEpochMilli()).build()
- NotificationManagerCompat.from(c).notify(401,notification)
- }
+    const val CHANNEL = "pulse_progress"
+    const val OPEN_DASHBOARD = "com.pulse.app.OPEN_DAILY_PROGRESS"
+    private const val ID = 401
+    private val metrics = listOf(Metric.STEPS, Metric.DISTANCE, Metric.ACTIVE_CALORIES, Metric.ACTIVE,
+        Metric.CALORIES, Metric.FLOORS, Metric.HYDRATION, Metric.ACTIVITIES)
+
+    fun supported(p: Preferences, s: HealthSnapshot) =
+        metrics.filter { p.mode != DataMode.NONE && p.mode == s.mode && s.access.verified && it in s.available }
+
+    fun prepare(context: Context) {
+        context.getSystemService(NotificationManager::class.java)
+            .createNotificationChannel(NotificationChannel(CHANNEL, "PULSE daily progress", NotificationManager.IMPORTANCE_LOW))
+    }
+
+    fun allowed(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return false
+        return NotificationManagerCompat.from(context).areNotificationsEnabled() &&
+            context.getSystemService(NotificationManager::class.java).getNotificationChannel(CHANNEL)?.importance != NotificationManager.IMPORTANCE_NONE
+    }
+
+    fun cancel(context: Context) = NotificationManagerCompat.from(context).cancel(ID)
+
+    data class Progress(val date: LocalDate, val lines: List<String>, val updated: Instant?)
+
+    fun progress(p: Preferences, s: HealthSnapshot, date: LocalDate, zone: ZoneId): Progress {
+        val day = s.days.firstOrNull { it.date == date }
+        val chosen = supported(p, s).filter { it in p.notificationMetrics }
+        val readings = chosen.mapNotNull { metric ->
+            day?.readings?.get(metric)?.takeIf { reading ->
+                reading.state == DataState.READY && reading.value?.let { it.isFinite() && it >= 0 } == true &&
+                    reading.updated?.atZone(zone)?.toLocalDate() == date
+            }?.let { metric to it }
+        }.toMap()
+        val lines = chosen.map { metric ->
+            val value = readings[metric]?.value ?: return@map "${label(metric)}: No data yet"
+            val goal = Goals.indicator(metric, p)
+            val amount = format(value, metric, p.imperial)
+            "${label(metric)}: $amount${goal?.let { " / ${format(it, metric, p.imperial)}" }.orEmpty()}"
+        }
+        return Progress(date, lines, readings.values.mapNotNull { it.updated }.maxOrNull())
+    }
+
+    private fun label(metric: Metric) = if (metric == Metric.CALORIES) "Total calories" else metric.label
+
+    private fun format(value: Double, metric: Metric, imperial: Boolean): String {
+        val miles = metric == Metric.DISTANCE && imperial
+        val amount = NumberFormat.getNumberInstance().apply { maximumFractionDigits = 2 }
+            .format(if (miles) value * 0.621371 else value)
+        return if (metric == Metric.STEPS) amount else "$amount ${if (miles) "mi" else metric.unit}"
+    }
+
+    fun publish(context: Context, p: Preferences, s: HealthSnapshot) {
+        if (!p.onboarded || !p.progressNotifications || p.mode == DataMode.NONE || p.mode != s.mode || !allowed(context)) {
+            cancel(context)
+            return
+        }
+        if (s.loading) return
+        if (!s.access.verified) {
+            if (s.access != ProviderAccess.ERROR || p.mode != DataMode.GARMIN) cancel(context)
+            return
+        }
+        val zone = ZoneId.systemDefault()
+        val now = Instant.now()
+        val date = now.atZone(zone).toLocalDate()
+        val progress = progress(p, s, date, zone)
+        val updated = progress.updated
+        if (updated == null) {
+            cancel(context)
+            return
+        }
+        prepare(context)
+        val intent = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java)
+            .setAction(OPEN_DASHBOARD).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val dateLabel = date.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM))
+        val time = updated.atZone(zone).format(DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT))
+        val end = date.plusDays(1).atStartOfDay(zone).toInstant()
+        val expires = if (p.mode == DataMode.GOOGLE_HEALTH) minOf(end, updated.plus(Duration.ofHours(2))) else end
+        if (expires <= now) {
+            cancel(context)
+            return
+        }
+        val expiry = Duration.between(now, expires).toMillis().coerceAtLeast(1)
+        val notification = NotificationCompat.Builder(context, CHANNEL)
+            .setSmallIcon(R.drawable.ic_pulse)
+            .setContentTitle("PULSE — Daily progress")
+            .setContentText("$dateLabel · ${progress.lines.first()}")
+            .setStyle(NotificationCompat.BigTextStyle().bigText("$dateLabel\n${progress.lines.joinToString("\n")}\nLast updated: $time"))
+            .setContentIntent(intent).setOnlyAlertOnce(true).setSilent(true).setOngoing(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setWhen(updated.toEpochMilli())
+            .setTimeoutAfter(expiry).build()
+        try {
+            NotificationManagerCompat.from(context).notify(ID, notification)
+        } catch (_: SecurityException) {
+            cancel(context)
+        }
+    }
 }

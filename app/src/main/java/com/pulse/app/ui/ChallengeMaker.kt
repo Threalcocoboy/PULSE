@@ -1,6 +1,6 @@
 package com.pulse.app.ui
 
-import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -53,10 +53,10 @@ private val durationPresets = listOf("7", "14", "30")
 fun ChallengeMaker(vm: PulseViewModel, back: () -> Unit) {
     val snapshot by vm.snapshot.collectAsStateWithLifecycle()
     val preferences by vm.preferences.collectAsStateWithLifecycle()
-    val available = if (snapshot.mode == preferences.mode && snapshot.mode != DataMode.DEMO) {
+    val available = if (snapshot.mode == preferences.mode && snapshot.mode != DataMode.NONE && snapshot.access.verified) {
         ChallengeEvaluator.metrics.intersect(snapshot.available)
     } else emptySet()
-    ChallengeMakerForm(available, preferences.mode, back, vm::createChallenge)
+    ChallengeMakerForm(available, preferences.mode, back, vm::createChallenge, preferences, snapshot)
 }
 
 @Composable
@@ -64,7 +64,9 @@ internal fun ChallengeMakerForm(
     available: Set<Metric>,
     source: DataMode,
     back: () -> Unit,
-    create: suspend (PersonalChallenge) -> Boolean
+    create: suspend (PersonalChallenge) -> Boolean,
+    preferences: Preferences = Preferences(),
+    snapshot: HealthSnapshot = HealthSnapshot()
 ) {
     var name by rememberSaveable { mutableStateOf("") }
     var description by rememberSaveable { mutableStateOf("") }
@@ -73,7 +75,20 @@ internal fun ChallengeMakerForm(
     var icon by rememberSaveable { mutableStateOf("book") }
     var manualIcon by rememberSaveable { mutableStateOf(false) }
     var tracking by rememberSaveable { mutableStateOf(ChallengeTracking.CHECKBOX) }
-    var metric by rememberSaveable { mutableStateOf(Metric.STEPS) }
+    var measure by rememberSaveable { mutableStateOf(ChallengeMeasure.STEPS) }
+    var condition by rememberSaveable { mutableStateOf(ChallengeCondition.AT_LEAST) }
+    var qualifier by rememberSaveable { mutableStateOf("") }
+    var time by rememberSaveable { mutableStateOf("07:30") }
+    var tolerance by rememberSaveable { mutableStateOf("30") }
+    var selectedGoals by rememberSaveable { mutableStateOf(emptyArray<String>()) }
+    var goalMatch by rememberSaveable { mutableStateOf(GoalMatch.ALL) }
+    val metric = measure.metric
+    val allGoals = remember(preferences) { Goals.active(preferences) }
+    val goalSelection = selectedGoals.toSet()
+    val goals = allGoals.filter { it.id in goalSelection }
+    val goalMetrics = if (snapshot.mode == source && snapshot.access.verified) snapshot.available else available
+    val goalsMode = tracking == ChallengeTracking.PERSONAL_GOALS
+    val weekly = goalsMode && goals.isNotEmpty() && goals.all { it.completionCadence == GoalCadence.WEEKLY }
     var rule by rememberSaveable { mutableStateOf(ChallengeRule.CUMULATIVE) }
     var target by rememberSaveable { mutableStateOf("5") }
     var unit by rememberSaveable { mutableStateOf("minutes") }
@@ -95,13 +110,28 @@ internal fun ChallengeMakerForm(
     val id = rememberSaveable { UUID.randomUUID().toString() }
     val auto = tracking == ChallengeTracking.AUTOMATIC
     val checkbox = tracking == ChallengeTracking.CHECKBOX
-    val needsWholeTarget = checkbox || (auto && metric == Metric.STEPS)
+    val needsWholeTarget = checkbox || (auto && metric in setOf(Metric.STEPS, Metric.ACTIVITIES))
+    val numericTarget = !goalsMode && (!auto || condition in setOf(ChallengeCondition.AT_LEAST, ChallengeCondition.BELOW))
+    val range = if (auto && condition == ChallengeCondition.PERSONAL_RANGE) {
+        remember(snapshot, measure, today) { ChallengeEvaluator.personalRange(snapshot, measure, today, java.time.ZoneId.systemDefault()) }
+    } else null
+    fun chooseMeasure(item: ChallengeMeasure) {
+        measure = item
+        condition = item.conditions.first()
+        qualifier = when (item) {
+            ChallengeMeasure.WORKOUT_TYPE -> ChallengeMeasure.workoutTypes.first()
+            ChallengeMeasure.SLEEP_STAGE -> ChallengeMeasure.stages.first()
+            else -> ""
+        }
+        if (rule !in item.rules(condition)) rule = ChallengeRule.FLEXIBLE
+    }
     val draft = PersonalChallenge(
         id = id, name = name.trim(), description = description.trim(),
         category = if (category == "Custom") customCategory.trim() else category, icon = icon,
         tracking = tracking, metric = metric, rule = rule,
-        target = parseChallengeNumber(target) ?: Double.NaN,
+        target = if (numericTarget) parseChallengeNumber(target) ?: Double.NaN else 1.0,
         unit = when {
+            goalsMode -> if (weekly) "weeks" else "days"
             auto -> metric.unit
             checkbox -> "times"
             unit == "Custom" -> customUnit.trim()
@@ -109,10 +139,25 @@ internal fun ChallengeMakerForm(
         },
         duration = (if (durationChoice == "Custom") customDuration else durationChoice).toIntOrNull() ?: 0,
         requiredDays = requiredDays.toIntOrNull() ?: 0,
-        start = LocalDate.ofEpochDay(startDay), source = source
+        start = LocalDate.ofEpochDay(startDay), source = source, measure = measure.takeIf { auto },
+        condition = if (auto) condition else ChallengeCondition.AT_LEAST,
+        qualifier = qualifier.takeIf { auto && it.isNotBlank() },
+        timeMinutes = if (auto && measure.timeBased) parseChallengeTime(time) else null,
+        toleranceMinutes = if (auto && measure == ChallengeMeasure.SLEEP_SCHEDULE) tolerance.toIntOrNull() ?: 0 else 30,
+        rangeMin = range?.first, rangeMax = range?.second, goalMatch = goalMatch, sourceScope = snapshot.sourceScope,
+        goalIds = if (goalsMode) goalSelection else emptySet(),
+        goalCadence = if (!goalsMode || goals.isEmpty()) null else if (weekly) GoalCadence.WEEKLY else GoalCadence.DAILY,
+        goalTitles = if (goalsMode) goals.map { it.metric.title } else emptyList()
     )
     val errors = draft.validationIssues().associateWith { it.message }.toMutableMap()
     if (auto && metric !in available) errors[ChallengeIssue.METRIC] = "Choose an available health metric."
+    if (goalsMode && (goals.size != goalSelection.size || goals.any { it.metric.source !in goalMetrics } ||
+            goals.map { it.completionCadence }.distinct().size > 1)) {
+        errors[ChallengeIssue.GOALS] = "Choose goals that this source can measure."
+    }
+    if (weekly && ChallengeIssue.REQUIRED_DAYS in errors) {
+        errors[ChallengeIssue.REQUIRED_DAYS] = "Choose a challenge window with at least ${draft.requiredDays.coerceAtLeast(1)} full weeks."
+    }
     if (needsWholeTarget && draft.target.isFinite() && draft.target % 1.0 != 0.0) {
         errors[ChallengeIssue.TARGET] = "Enter a whole number greater than zero."
     }
@@ -125,7 +170,7 @@ internal fun ChallengeMakerForm(
     fun request(issue: ChallengeIssue) {
         when (issue) {
             ChallengeIssue.NAME, ChallengeIssue.CATEGORY -> identityOpen = true
-            ChallengeIssue.METRIC, ChallengeIssue.UNIT -> trackingOpen = true
+            ChallengeIssue.METRIC, ChallengeIssue.UNIT, ChallengeIssue.GOALS, ChallengeIssue.QUALIFIER -> trackingOpen = true
             else -> goalOpen = true
         }
         requestedField = issue
@@ -200,14 +245,22 @@ internal fun ChallengeMakerForm(
                 ChallengeChoice("Tracking method", tracking, listOf(
                     ChallengeOption(ChallengeTracking.AUTOMATIC, ChallengeTracking.AUTOMATIC.title,
                         "Use daily measurements from ${source.sourceName}.", "heart"),
+                    ChallengeOption(ChallengeTracking.PERSONAL_GOALS, ChallengeTracking.PERSONAL_GOALS.title,
+                        "Complete challenges by reaching the goals you've already set in PULSE.", "target"),
                     ChallengeOption(ChallengeTracking.CHECKBOX, ChallengeTracking.CHECKBOX.title,
                         "Tap once for each completion.", "check"),
                     ChallengeOption(ChallengeTracking.NUMERIC, ChallengeTracking.NUMERIC.title,
                         "Enter an amount, such as pages read.", "edit")
                 ), change = {
                     tracking = it
-                    if (it == ChallengeTracking.AUTOMATIC && metric !in available) {
-                        available.firstOrNull()?.let { supported -> metric = supported }
+                    if (it == ChallengeTracking.AUTOMATIC) {
+                        val supported = measure.takeIf { item -> item.metric in available }
+                            ?: ChallengeMeasure.entries.firstOrNull { item -> item.metric in available }
+                        if (supported != null) chooseMeasure(supported)
+                    }
+                    if (it == ChallengeTracking.PERSONAL_GOALS) {
+                        rule = ChallengeRule.FLEXIBLE
+                        requiredDays = if (weekly) "1" else "5"
                     }
                 })
                 when (tracking) {
@@ -222,28 +275,86 @@ internal fun ChallengeMakerForm(
                             errors[ChallengeIssue.UNIT], attempted, focusFor(ChallengeIssue.UNIT), maxLength = 24)
                     }
                     ChallengeTracking.AUTOMATIC -> ScrollToError(focusFor(ChallengeIssue.METRIC)) {
-                        if (available.isEmpty()) {
-                            val guidance = "Connect a health source in Settings and grant access to steps, distance or sleep."
-                            if (attempted) ChallengeError(guidance) else Label(guidance)
-                        } else {
-                            ChallengeChoice("Health metric", metric, available.map { ChallengeOption(it, healthMetricName(it)) },
-                                change = { metric = it }, error = errors[ChallengeIssue.METRIC].takeIf { attempted })
-                            Label(when (metric) {
-                                Metric.SLEEP -> "Sleep duration counts on the day you wake up."
-                                Metric.DISTANCE -> "PULSE uses your daily distance in kilometers."
-                                else -> "PULSE uses your daily step total."
-                            })
+                        ChallengeChoice("Health metric", measure, ChallengeMeasure.entries.map { item ->
+                            val supported = item.metric in available
+                            val explanation = when {
+                                supported -> item.detail
+                                item in setOf(ChallengeMeasure.BATTERY, ChallengeMeasure.STRESS) -> "Requires a compatible Garmin connection."
+                                else -> "Unavailable with your current source or permissions."
+                            }
+                            ChallengeOption(item, item.title, explanation, enabled = supported)
+                        }, change = ::chooseMeasure, error = errors[ChallengeIssue.METRIC].takeIf { attempted })
+                        if (metric in available) Label(measure.detail)
+                        if (measure == ChallengeMeasure.WORKOUT_TYPE) {
+                            val types = (ChallengeMeasure.workoutTypes + snapshot.days.flatMap { it.activities }
+                                .map { workoutTypeName(it.type) }).distinct()
+                            ChallengeChoice("Workout type", qualifier, types.map { ChallengeOption(it, it) }, change = { qualifier = it })
                         }
+                        if (measure == ChallengeMeasure.SLEEP_STAGE) {
+                            ChallengeChoice("Sleep stage", qualifier, ChallengeMeasure.stages.map { ChallengeOption(it, it) }, change = { qualifier = it })
+                        }
+                    }
+                    ChallengeTracking.PERSONAL_GOALS -> ScrollToError(focusFor(ChallengeIssue.GOALS)) {
+                        if (allGoals.isEmpty()) Label("Set a personal goal in Profile & Goals.")
+                        allGoals.forEach { goal ->
+                            val weeklyGoal = goal.completionCadence == GoalCadence.WEEKLY
+                            val selectable = goal.metric.source in goalMetrics && (goals.isEmpty() || weeklyGoal == weekly)
+                            val checked = goal.id in goalSelection
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(checked, { checkedNow ->
+                                    val next = if (checkedNow) goalSelection + goal.id else goalSelection - goal.id
+                                    selectedGoals = next.toTypedArray()
+                                    if (checkedNow && weeklyGoal && goals.isEmpty()) {
+                                        requiredDays = "1"
+                                        startDay = LocalDate.ofEpochDay(startDay).with(
+                                            java.time.temporal.TemporalAdjusters.nextOrSame(java.time.DayOfWeek.MONDAY)).toEpochDay()
+                                    }
+                                }, enabled = selectable || checked)
+                                Column(Modifier.weight(1f)) {
+                                    Text(goal.metric.title)
+                                    Label(goal.summary(preferences.imperial))
+                                    if (!selectable && !checked) Label(if (goal.metric.source !in goalMetrics) "Unavailable from this source" else "Choose goals with the same period")
+                                }
+                            }
+                        }
+                        if (goals.size > 1) ChallengeChoice("Goals to reach", goalMatch,
+                            listOf(ChallengeOption(GoalMatch.ANY, "Any selected goal"), ChallengeOption(GoalMatch.ALL, "All selected goals")),
+                            change = { goalMatch = it })
+                        if (attempted) errors[ChallengeIssue.GOALS]?.let { ChallengeError(it) }
                     }
                 }
             }
             MakerSection("target", "Goal & Rules", rule.title, goalOpen, { goalOpen = !goalOpen }) {
-                val sleepOnly = auto && metric == Metric.SLEEP
+                if (auto && measure.conditions.size > 1) {
+                    ChallengeChoice("Condition", condition, measure.conditions.map { ChallengeOption(it, it.title) },
+                        change = {
+                            condition = it
+                            if (rule !in measure.rules(it)) rule = ChallengeRule.FLEXIBLE
+                        })
+                }
+                if (condition == ChallengeCondition.PERSONAL_RANGE && auto) {
+                    Label(if (range == null) ChallengeIssue.RANGE.message
+                        else "Recent range: ${formatChallengeAmount(range.first)}–${formatChallengeAmount(range.second)} ${metric.unit}. Based on your recorded readings.")
+                }
+                if (auto && measure.timeBased) {
+                    ChallengeField(if (measure == ChallengeMeasure.WORKOUT_START) "Latest workout start (HH:mm)" else "Target wake time (HH:mm)",
+                        time, { time = it }, errors[ChallengeIssue.TIME], attempted, focusFor(ChallengeIssue.TIME), maxLength = 5)
+                    if (measure == ChallengeMeasure.SLEEP_SCHEDULE) {
+                        ChallengeField("Time window in minutes", tolerance, { tolerance = it }, errors[ChallengeIssue.TIME],
+                            attempted, keyboard = KeyboardType.Number, maxLength = 3)
+                    }
+                }
+                val rules = when {
+                    goalsMode -> listOf(ChallengeRule.FLEXIBLE, ChallengeRule.STREAK)
+                    auto -> measure.rules(condition)
+                    else -> ChallengeRule.entries
+                }
                 ScrollToError(focusFor(ChallengeIssue.SLEEP_RULE)) {
-                    ChallengeChoice("Goal rule", rule,
-                        listOf(ChallengeRule.CUMULATIVE, ChallengeRule.FLEXIBLE, ChallengeRule.STREAK, ChallengeRule.ONE_TIME)
-                            .filter { !sleepOnly || it != ChallengeRule.CUMULATIVE }.map { ChallengeOption(it, it.title, it.explanation) },
-                        change = { rule = it }, fallback = "Choose a daily sleep goal")
+                    ChallengeChoice("Goal rule", rule, rules.map {
+                        ChallengeOption(it, if (weekly && it == ChallengeRule.FLEXIBLE) "Weeks completed"
+                            else if (weekly && it == ChallengeRule.STREAK) "Consecutive weeks" else it.title,
+                            if (weekly) "Count full Monday–Sunday weeks inside the challenge." else it.explanation)
+                    }, change = { rule = it })
                 }
                 val daily = rule != ChallengeRule.CUMULATIVE
                 val targetLabel = when {
@@ -255,7 +366,7 @@ internal fun ChallengeMakerForm(
                     draft.unit.isBlank() -> if (daily) "Daily target" else "Total target"
                     else -> if (daily) "Daily target (${draft.unit})" else "Total target (${draft.unit})"
                 }
-                ChallengeField(targetLabel, target, { target = it }, errors[ChallengeIssue.TARGET], attempted,
+                if (numericTarget) ChallengeField(targetLabel, target, { target = it }, errors[ChallengeIssue.TARGET], attempted,
                     focusFor(ChallengeIssue.TARGET), keyboard = if (needsWholeTarget) KeyboardType.Number else KeyboardType.Decimal,
                     maxLength = 16)
                 ChallengeChoice("Challenge duration", durationChoice, (durationPresets + "Custom").map {
@@ -266,7 +377,9 @@ internal fun ChallengeMakerForm(
                         attempted, focusFor(ChallengeIssue.DURATION), keyboard = KeyboardType.Number, maxLength = 3)
                 }
                 if (rule.countsDays) {
-                    ChallengeField(if (rule == ChallengeRule.STREAK) "Days in a row" else "Days to complete",
+                    ChallengeField(if (weekly) {
+                        if (rule == ChallengeRule.STREAK) "Weeks in a row" else "Weeks to complete"
+                    } else if (rule == ChallengeRule.STREAK) "Days in a row" else "Days to complete",
                         requiredDays, { requiredDays = it }, errors[ChallengeIssue.REQUIRED_DAYS], attempted,
                         focusFor(ChallengeIssue.REQUIRED_DAYS), keyboard = KeyboardType.Number, maxLength = 3)
                 }
@@ -282,8 +395,6 @@ internal fun ChallengeMakerForm(
     if (dateOpen) ChallengeDatePicker(draft.start, today, { dateOpen = false }) { startDay = it.toEpochDay() }
 }
 
-private fun healthMetricName(metric: Metric) = if (metric == Metric.SLEEP) "Sleep duration" else metric.label
-
 @Composable
 private fun ScrollToError(request: Int, content: @Composable ColumnScope.() -> Unit) {
     val requester = remember { BringIntoViewRequester() }
@@ -295,8 +406,9 @@ private fun ScrollToError(request: Int, content: @Composable ColumnScope.() -> U
 private fun MakerSection(icon: String, title: String, summary: String, expanded: Boolean, toggle: () -> Unit,
     content: @Composable ColumnScope.() -> Unit) {
     val motion = LocalAnimations.current
+    val chevron by animateFloatAsState(if (expanded) -90f else 90f, PulseMotion.settle(motion), label = "Challenge section chevron")
     Surface(shape = RoundedCornerShape(PulseTokens.corner), color = MaterialTheme.colorScheme.surface) {
-        Column(Modifier.fillMaxWidth().animateContentSize(tween(if (motion) PulseTokens.reflowMillis else 0))) {
+        Column(Modifier.fillMaxWidth()) {
             Row(
                 Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = toggle)
                     .heightIn(min = 56.dp).padding(horizontal = 12.dp, vertical = 8.dp)
@@ -309,12 +421,12 @@ private fun MakerSection(icon: String, title: String, summary: String, expanded:
                     Text(title, style = MaterialTheme.typography.titleMedium)
                     Label(summary)
                 }
-                Glyph("next", Modifier.size(16.dp).rotate(if (expanded) -90f else 90f))
+                Glyph("next", Modifier.size(16.dp).rotate(chevron))
             }
-            if (expanded) Column(
-                Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp), content = content
-            )
+            PulseVisibility(expanded) {
+                Column(Modifier.foregroundSemantics(expanded).reveal(1).padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
+            }
         }
     }
 }
@@ -358,13 +470,15 @@ private fun ChallengePreview(challenge: PersonalChallenge, firstError: Challenge
                 Label(when (firstError) {
                     ChallengeIssue.NAME -> "Add a name to preview your challenge."
                     ChallengeIssue.CATEGORY -> "Name your custom category to see the summary."
-                    ChallengeIssue.METRIC, ChallengeIssue.UNIT -> "Finish the tracking choices to see the summary."
+                    ChallengeIssue.METRIC, ChallengeIssue.UNIT, ChallengeIssue.GOALS, ChallengeIssue.QUALIFIER -> "Finish the tracking choices to see the summary."
                     else -> "Finish the goal settings to see the summary."
                 })
             } else {
                 Text(challenge.name, style = MaterialTheme.typography.bodyMedium)
-                Text(challenge.summary(), style = MaterialTheme.typography.bodyMedium)
-                Label("Starts ${challenge.start.displayDate()} · ${if (challenge.tracking == ChallengeTracking.AUTOMATIC) challenge.source.sourceName else challenge.tracking.title}")
+                PulseSwap(challenge.summary(), label = "Challenge preview", distance = 5) {
+                    Text(it, style = MaterialTheme.typography.bodyMedium)
+                }
+                Label("Starts ${challenge.start.displayDate()} · ${if (challenge.tracking.automatic) challenge.source.sourceName else challenge.tracking.title}")
             }
         }
     }

@@ -18,13 +18,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pulse.app.PulseViewModel
 import com.pulse.app.core.*
 import java.time.LocalDate
-import java.time.ZoneId
-import java.time.temporal.ChronoUnit
 
 @Composable
 fun ChallengeDetailScreen(vm: PulseViewModel, id: String, back: () -> Unit) {
     val challenges by vm.challenges.collectAsStateWithLifecycle()
     val snapshot by vm.snapshot.collectAsStateWithLifecycle()
+    val preferences by vm.preferences.collectAsStateWithLifecycle()
     val challenge = challenges.firstOrNull { it.id == id }
     var edit by rememberSaveable(id) { mutableStateOf(false) }
     var archive by rememberSaveable(id) { mutableStateOf(false) }
@@ -38,8 +37,8 @@ fun ChallengeDetailScreen(vm: PulseViewModel, id: String, back: () -> Unit) {
                 item { Text("Challenge unavailable") }
                 return@LazyColumn
             }
-            item { ChallengeCard(challenge, vm = vm) }
-            if (challenge.description.isNotBlank()) item { Text(challenge.description) }
+            item { ChallengeCard(challenge, vm = vm, modifier = Modifier.reveal(1)) }
+            if (challenge.description.isNotBlank()) item { Text(challenge.description, Modifier.reveal(2)) }
             if (challenge.completed != null) item {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Glyph("medal", Modifier.size(20.dp), MaterialTheme.colorScheme.primary)
@@ -69,25 +68,33 @@ fun ChallengeDetailScreen(vm: PulseViewModel, id: String, back: () -> Unit) {
                 if (canPause) {
                     Label(if (paused) "Progress updates are paused. Your end date stays the same."
                         else "Pausing stops progress updates. Your end date stays the same.")
-                    if (paused && challenge.tracking == ChallengeTracking.AUTOMATIC) {
+                    if (paused && challenge.tracking.automatic) {
                         Label("When you resume, PULSE checks available measurements from the challenge dates.")
                     }
                 }
             }
-            item { Text("Progress history", style = MaterialTheme.typography.titleLarge) }
-            if (challenge.tracking == ChallengeTracking.AUTOMATIC) {
-                val days = if (snapshot.mode == challenge.source && snapshot.mode != DataMode.DEMO &&
-                    challenge.zone == ZoneId.systemDefault().id) {
-                    HistoryMath.unique(snapshot.days).associateBy { it.date }
-                } else emptyMap()
-                item { Label("${challenge.metric.label} · ${challenge.source.sourceName}") }
-                val dayCount = ChronoUnit.DAYS.between(challenge.start, minOf(challenge.end, LocalDate.now())) + 1
-                if (dayCount <= 0) item { Label("History appears after your challenge starts.") }
-                else items(dayCount.toInt(), key = { challenge.start.plusDays(it.toLong()).toEpochDay() }) { index ->
-                    val date = challenge.start.plusDays(index.toLong())
-                    val amount = days[date]?.readings?.get(challenge.metric)?.takeIf { it.state == DataState.READY }?.value
-                    val reading = amount?.let { "${formatChallengeAmount(it)} ${challenge.unit}" } ?: "Awaiting data"
-                    HistoryEntry(date, reading)
+            item { Text("Progress history", Modifier.reveal(3), style = MaterialTheme.typography.titleLarge) }
+            if (challenge.tracking.automatic) {
+                val periods = ChallengeEvaluator.periods(challenge, snapshot, LocalDate.now(), preferences)
+                val goals = challenge.tracking == ChallengeTracking.PERSONAL_GOALS
+                item {
+                    Label("${if (goals) "Personal goals" else challenge.measurement?.title ?: challenge.metric.label} · ${challenge.source.sourceName}")
+                    if (goals) challenge.linkedGoals(preferences).forEach { goal ->
+                        Label("${goal.metric.title} · ${goal.summary(preferences.imperial)}")
+                    }
+                    if (goals && challenge.linkedGoals(preferences).size < challenge.goalReferences.size) {
+                        Label("A linked goal is missing or its period changed. Review it in Profile & Goals.")
+                    }
+                }
+                if (periods.isEmpty()) item { Label("History appears after your challenge starts.") }
+                items(periods, key = { it.date.toEpochDay() }) { period ->
+                    val reading = when {
+                        goals || challenge.measurement?.presence == true || challenge.condition != ChallengeCondition.AT_LEAST ->
+                            when (period.met) { true -> "Met"; false -> "Not met"; null -> "Awaiting data" }
+                        period.value != null -> "${formatChallengeAmount(period.value)} ${challenge.unit}"
+                        else -> "Awaiting data"
+                    }
+                    HistoryEntry(period.date, reading)
                 }
             } else {
                 if (challenge.events.isEmpty()) item { Label("No entries yet") }

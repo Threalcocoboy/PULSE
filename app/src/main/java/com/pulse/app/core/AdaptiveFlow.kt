@@ -19,7 +19,8 @@ object AdaptiveFlow {
     fun configure(widgets: List<Widget>, id: String, replacement: Widget): List<Widget> {
         require(widgets.any { it.id == id })
         require(replacement.id == id && Footprint(replacement.width,replacement.height) in replacement.allowedSizes())
-        return pack(widgets.map { if(it.id == id) replacement else it })
+        val updated = widgets.map { if (it.id == id) replacement.copy(row = it.row, column = it.column) else it }
+        return if (isValid(updated)) updated else pack(updated)
     }
     /** A move changes reading order; it never reserves empty rows. First-fit also backfills
      * holes with later small tiles. Returning packing order makes persistence idempotent. */
@@ -59,13 +60,25 @@ object AdaptiveFlow {
 }
 object LayoutCodec {
     fun encode(layout: List<Widget>) = "v1\n" + layout.joinToString("\n") { w -> listOf(w.id,w.metric.name,w.shape.name,w.width,w.height,w.column,w.row,w.detailed,w.showGoal,w.showTrend).joinToString("|") }
-    fun decode(raw: String): List<Widget> = runCatching {
-        require(raw.startsWith("v1\n")); require(raw.length < 40000)
-        val rows = raw.removePrefix("v1\n").lines().filter { it.isNotBlank() }
-        val result = rows.map { row -> val a = row.split('|'); require(a.size == 10)
-            Widget(a[0],Metric.valueOf(a[1]),WidgetShape.valueOf(a[2]),a[3].toInt(),a[4].toInt(),a[5].toInt(),a[6].toInt(),a[7].toBooleanStrict(),a[8].toBooleanStrict(),a[9].toBooleanStrict()) }
-        require(AdaptiveFlow.isValid(result)); AdaptiveFlow.pack(result)
-    }.getOrElse { AdaptiveFlow.defaults() }
+    fun decode(raw: String): List<Widget> {
+        val lines = raw.lines()
+        if (lines.firstOrNull() != "v1" || raw.length >= 40000) return AdaptiveFlow.defaults()
+        val rows = lines.drop(1).filter(String::isNotBlank)
+        val widgets = rows.mapNotNull { row ->
+            runCatching {
+                val a = row.split('|')
+                val base = Widget(a[0], Metric.valueOf(a[1]), a.getOrNull(2)?.let(WidgetShape::valueOf) ?: WidgetShape.RECTANGLE)
+                val requested = Footprint(a.getOrNull(3)?.toIntOrNull() ?: base.width, a.getOrNull(4)?.toIntOrNull() ?: base.height)
+                val size = requested.takeIf { it in base.allowedSizes() } ?: base.allowedSizes().first()
+                base.copy(width = size.columns, height = size.rows, column = a.getOrNull(5)?.toIntOrNull() ?: 0,
+                    row = a.getOrNull(6)?.toIntOrNull() ?: 0, detailed = a.getOrNull(7)?.toBooleanStrictOrNull() ?: true,
+                    showGoal = a.getOrNull(8)?.toBooleanStrictOrNull() ?: true, showTrend = a.getOrNull(9)?.toBooleanStrictOrNull() ?: true)
+                    .takeIf { it.id.matches(Regex("[A-Za-z0-9_-]{1,80}")) }
+            }.getOrNull()
+        }.distinctBy { it.id }.take(100)
+        if (widgets.isEmpty() && rows.isNotEmpty()) return AdaptiveFlow.defaults()
+        return if (AdaptiveFlow.isValid(widgets)) widgets else AdaptiveFlow.pack(widgets)
+    }
 }
 class LayoutHistory(initial: List<Widget>) {
     var current = initial; private set
@@ -76,7 +89,20 @@ class LayoutHistory(initial: List<Widget>) {
     fun commit(next: List<Widget>) { require(AdaptiveFlow.isValid(next)); if(next == current) return; past.addLast(current); if(past.size>50) past.removeFirst(); future.clear(); current=next }
     fun undo(): List<Widget> { if(canUndo) { future.addLast(current); current=past.removeLast() }; return current }
     fun redo(): List<Widget> { if(canRedo) { past.addLast(current); current=future.removeLast() }; return current }
-    fun savedUndo() = ArrayList(past.map(LayoutCodec::encode))
-    fun savedRedo() = ArrayList(future.map(LayoutCodec::encode))
+    fun savedUndo(limit: Int = 50, maxChars: Int = Int.MAX_VALUE) = encodeHistory(past, limit, maxChars)
+    fun savedRedo(limit: Int = 50, maxChars: Int = Int.MAX_VALUE) = encodeHistory(future, limit, maxChars)
+
+    private fun encodeHistory(layouts: List<List<Widget>>, limit: Int, maxChars: Int): ArrayList<String> {
+        val saved = ArrayList<String>()
+        var size = 0
+        for (layout in layouts.asReversed().take(limit)) {
+            val encoded = LayoutCodec.encode(layout)
+            size += encoded.length
+            if (size > maxChars) break
+            saved.add(encoded)
+        }
+        saved.reverse()
+        return saved
+    }
     fun restore(undo: List<String>, redo: List<String>) { past.clear(); past.addAll(undo.takeLast(50).map(LayoutCodec::decode)); future.clear(); future.addAll(redo.takeLast(50).map(LayoutCodec::decode)) }
 }

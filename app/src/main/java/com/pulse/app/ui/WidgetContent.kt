@@ -24,16 +24,28 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
     p: Preferences,
     current: DayData?,
     days: List<DayData>,
-    loading: Boolean
+    loading: Boolean,
+    snapshot: HealthSnapshot? = null
 ) {
-    if(w.metric == Metric.GOAL) { GoalsWidget(w,p,days); return }
+    if (w.metric == Metric.GOAL) { GoalsWidget(w, p, snapshot); return }
     val value = when (w.metric) {
         Metric.WEEKLY -> HistoryMath.aggregate(
             days.filter { it.date in LocalDate.now().minusDays(6)..LocalDate.now() },
             Metric.STEPS
         )
-        Metric.GOAL -> current?.value(Metric.STEPS)?.div(p.stepGoal)?.times(100)
         else -> current?.value(w.metric)
+    }
+
+    if (value == null && !loading && w.metric in setOf(Metric.BATTERY, Metric.STRESS) &&
+        (snapshot == null || w.metric !in snapshot.available)) {
+        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface, w.shape.outline()), contentAlignment = Alignment.Center) {
+            Column(Modifier.fillMaxWidth(if (w.shape == WidgetShape.CIRCLE) .68f else .86f), horizontalAlignment = Alignment.CenterHorizontally) {
+                FitText(w.metric.label, style = MaterialTheme.typography.titleMedium)
+                FitText(if (p.mode == DataMode.NONE) "Requires Garmin" else "Source unavailable", textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.labelSmall, maxLines = 2)
+            }
+        }
+        return
     }
 
     if(w.metric==Metric.DISTANCE) {
@@ -42,17 +54,24 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
             val safe=if(w.shape==WidgetShape.CIRCLE) .70f else .86f
             Column(Modifier.fillMaxWidth(safe).padding(vertical=4.dp),horizontalAlignment=Alignment.CenterHorizontally){
                 FitText("Distance",style=MaterialTheme.typography.labelSmall)
-                FitText(if(loading&&value==null) "···" else valueText(value,w.metric,p.imperial),Modifier.fillMaxWidth(),fontSize=valueSize,textAlign=TextAlign.Center)
+                AnimatedFitReading(if (loading && value == null) "···" else valueText(value, w.metric, p.imperial), value,Modifier.fillMaxWidth(),fontSize=valueSize,textAlign=TextAlign.Center)
                 FitText(if(p.imperial) "mi" else "km",style=MaterialTheme.typography.labelSmall)
             }
         };return
     }
+    val target = remember(w.metric, p) { Goals.indicator(w.metric, p) }
+    val configured = w.copy(showGoal = w.showGoal && target != null)
+    val display = when (w.metric) {
+        Metric.STEPS -> p.copy(stepGoal = target?.roundToInt()?.coerceAtLeast(1) ?: p.stepGoal)
+        Metric.SLEEP -> p.copy(sleepGoal = target ?: p.sleepGoal)
+        else -> p
+    }
     when (w.shape) {
-        WidgetShape.CIRCLE -> CircleWidgetContent(w, value, p, current, days, loading)
-        WidgetShape.SQUARE -> SquareWidgetContent(w, value, p, current, days, loading)
-        WidgetShape.PILL -> PillWidgetContent(w, value, p, current, days, loading)
-        WidgetShape.BANNER -> BannerWidgetContent(w, value, p, current, days, loading)
-        WidgetShape.RECTANGLE -> RectangleWidgetContent(w, value, p, current, days, loading)
+        WidgetShape.CIRCLE -> CircleWidgetContent(configured, value, display, current, days, loading)
+        WidgetShape.SQUARE -> SquareWidgetContent(configured, value, display, current, days, loading)
+        WidgetShape.PILL -> PillWidgetContent(configured, value, display, current, days, loading)
+        WidgetShape.BANNER -> BannerWidgetContent(configured, value, display, current, days, loading)
+        WidgetShape.RECTANGLE -> RectangleWidgetContent(configured, value, display, current, days, loading)
     }
 }
 
@@ -129,8 +148,8 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
                             val countStr = if (loading && value == null) "···" else valueText(value, w.metric, p.imperial)
                             val fontSize = (safeSize.value * 0.22f / (countStr.length.coerceAtLeast(3) * 0.16f * scale))
                                 .coerceIn(24f, 44f).sp
-                            FitText(
-                                countStr,
+                            AnimatedFitReading(
+                                countStr, value,
                                 fontSize = fontSize,
                                 fontWeight = FontWeight.Normal,
                                 textAlign = TextAlign.Center,
@@ -202,8 +221,8 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
                         val countStr = if (loading && value == null) "···" else valueText(value, w.metric, p.imperial)
                         val fontSize = (safeSize.value * 0.28f / (countStr.length.coerceAtLeast(3) * 0.18f * scale))
                             .coerceIn(18f, 30f).sp
-                        FitText(
-                            countStr,
+                        AnimatedFitReading(
+                            countStr, value,
                             fontSize = fontSize,
                             fontWeight = FontWeight.Normal,
                             textAlign = TextAlign.Center,
@@ -268,8 +287,8 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                FitText(
-                    if (loading && value == null) "···" else valueText(value, w.metric, p.imperial),
+                AnimatedFitReading(
+                    if (loading && value == null) "···" else valueText(value, w.metric, p.imperial), value,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Normal,
                     maxLines = 1
@@ -300,8 +319,8 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
 
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    FitText(
-                        if (loading && value == null) "···" else valueText(value, w.metric, p.imperial),
+                    AnimatedFitReading(
+                        if (loading && value == null) "···" else valueText(value, w.metric, p.imperial), value,
                         fontSize = 42.sp,
                         fontWeight = FontWeight.Normal,
                         maxLines = 1
@@ -337,7 +356,7 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
                             else -> if (value == null) "No recorded data" else "Today's summary"
                         }
                     )
-                    if (w.metric == Metric.STEPS && value != null) {
+                    if (w.metric == Metric.STEPS && w.showGoal && value != null) {
                         Label(if (value >= p.stepGoal) "Goal achieved" else "${number((p.stepGoal - value).coerceAtLeast(0.0))} to go")
                     }
                 }
@@ -365,8 +384,8 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
 
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    FitText(
-                        if (loading && value == null) "···" else valueText(value, w.metric, p.imperial),
+                    AnimatedFitReading(
+                        if (loading && value == null) "···" else valueText(value, w.metric, p.imperial), value,
                         fontSize = if (scale > 1.3f) 24.sp else 32.sp,
                         fontWeight = FontWeight.Normal,
                         maxLines = 1
@@ -441,8 +460,8 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
                         maxLines = 1
                     )
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        FitText(
-                            if (loading && value == null) "···" else valueText(value, w.metric, p.imperial),
+                        AnimatedFitReading(
+                            if (loading && value == null) "···" else valueText(value, w.metric, p.imperial), value,
                             fontSize = 22.sp,
                             fontWeight = FontWeight.Normal,
                             maxLines = 1
@@ -485,7 +504,7 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
                         val count = if (loading && value == null) "···" else valueText(value, w.metric, p.imperial)
                         val font = minOf(44f, this@BoxWithConstraints.maxWidth.value * 0.58f / (count.length * 0.56f * scale))
                             .coerceAtLeast(23f).sp
-                        FitText(count, fontSize = font, fontWeight = FontWeight.Normal, maxLines = 1)
+                        AnimatedFitReading(count, value, fontSize = font, fontWeight = FontWeight.Normal, maxLines = 1)
                         if (w.showGoal && w.metric in setOf(Metric.STEPS, Metric.GOAL)) {
                             FitText("of ${number(p.stepGoal.toDouble())} goal", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         } else if (w.metric !in setOf(Metric.SLEEP, Metric.SLEEP_STAGES)) {
@@ -520,8 +539,8 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
 
                 Label(
                     if (value == null) "No recorded data"
-                    else if (w.metric == Metric.STEPS && value >= p.stepGoal) "Daily goal reached"
-                    else if (w.metric == Metric.STEPS) "${number((p.stepGoal - value).coerceAtLeast(0.0))} to your goal"
+                    else if (w.metric == Metric.STEPS && w.showGoal && value >= p.stepGoal) "Daily goal reached"
+                    else if (w.metric == Metric.STEPS && w.showGoal) "${number((p.stepGoal - value).coerceAtLeast(0.0))} to your goal"
                     else "Today's measurement"
                 )
 
@@ -589,8 +608,8 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                FitText(
-                    if (loading && value == null) "···" else valueText(value, w.metric, p.imperial),
+                AnimatedFitReading(
+                    if (loading && value == null) "···" else valueText(value, w.metric, p.imperial), value,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1
@@ -652,8 +671,8 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
                     }
 
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        FitText(
-                            if (loading && value == null) "···" else valueText(value, w.metric, p.imperial),
+                        AnimatedFitReading(
+                            if (loading && value == null) "···" else valueText(value, w.metric, p.imperial), value,
                             fontSize = 32.sp,
                             fontWeight = FontWeight.Normal,
                             maxLines = 1
@@ -703,8 +722,8 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
                         maxLines = 1
                     )
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                        FitText(
-                            if (loading && value == null) "···" else valueText(value, w.metric, p.imperial),
+                        AnimatedFitReading(
+                            if (loading && value == null) "···" else valueText(value, w.metric, p.imperial), value,
                             fontSize = 20.sp,
                             fontWeight = FontWeight.Normal,
                             maxLines = 1
@@ -740,24 +759,33 @@ val LocalWidgetEditing=staticCompositionLocalOf { false }
     }
 }
 
-@Composable private fun GoalsWidget(w:Widget,p:Preferences,days:List<DayData>) {
- val goals=p.enabledGoals.intersect(Goals.available(p.mode)).toList()
+@Composable private fun GoalsWidget(w:Widget,p:Preferences,snapshot:HealthSnapshot?) {
+ val goals=remember(p) { Goals.active(p) }
+ val zone=java.time.ZoneId.systemDefault()
+ val today=LocalDate.now(zone)
  BoxWithConstraints(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface,w.shape.outline()),contentAlignment=Alignment.Center) {
  val circle=w.shape==WidgetShape.CIRCLE
  val safe=if(circle) minOf(maxWidth,maxHeight)*.70f else maxWidth-20.dp
  val compact=maxHeight<100.dp || safe<150.dp
  val availableHeight=if(circle)safe.value else maxHeight.value-12
- val rowHeight=LocalDensity.current.fontScale*48+6
+ val rowHeight=LocalDensity.current.fontScale*43+6
  val possible=(availableHeight/rowHeight).toInt().coerceIn(1,5)
  val capacity=if(possible<goals.size)((availableHeight-LocalDensity.current.fontScale*20)/rowHeight).toInt().coerceIn(1,5) else possible
  val visible=goals.take(capacity)
  Column(Modifier.width(safe).heightIn(max=if(circle)safe else maxHeight-12.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center) {
- visible.forEach{m->val value=Goals.value(m,days,LocalDate.now());val target=Goals.target(m,p)
+ if(goals.isEmpty())FitText("No goals set",style=MaterialTheme.typography.labelSmall)
+ visible.forEach{goal->
+ val progress=remember(goal,snapshot,today,zone) { snapshot?.takeIf { it.mode == p.mode }?.let { Goals.current(goal,it,today,zone) } ?: GoalProgress(null,null,false) }
+ val fraction=goal.progressFraction(progress)
  Row(Modifier.fillMaxWidth().padding(vertical=2.dp),verticalAlignment=Alignment.CenterVertically){
- Column(Modifier.weight(1f)){FitText(m.label,style=MaterialTheme.typography.labelSmall);FitText("${valueText(value,m,p.imperial)} ${if(m==Metric.SLEEP) "" else if(m==Metric.DISTANCE&&p.imperial) "mi" else m.unit}",style=MaterialTheme.typography.labelSmall);FitText("of ${valueText(target,m,p.imperial)} ${if(m==Metric.SLEEP) "" else if(m==Metric.DISTANCE&&p.imperial) "mi" else m.unit}",style=MaterialTheme.typography.labelSmall)}
- if(!compact)DotRing((value ?: 0.0)/target,Modifier.size(30.dp))
+ Column(Modifier.weight(1f)){
+  FitText(goal.metric.title,style=MaterialTheme.typography.labelSmall)
+  FitText(if (progress.met == true) "Reached · ${goal.progressText(progress,p.imperial)}" else goal.progressText(progress,p.imperial),style=MaterialTheme.typography.labelSmall)
+  if(!compact) FitText(goal.summary(p.imperial),style=MaterialTheme.typography.labelSmall)
  }
- LinearProgressIndicator(progress={((value ?: 0.0)/target).toFloat().coerceIn(0f,1f)},modifier=Modifier.fillMaxWidth().height(2.dp),color=Red)
+ if(!compact && fraction!=null)DotRing(fraction,Modifier.size(30.dp))
+ }
+ if(fraction!=null)PulseProgress(fraction.toFloat(), Modifier.fillMaxWidth().height(2.dp))
  }
  if(visible.size<goals.size)FitText("+${goals.size-visible.size} goals · Settings",style=MaterialTheme.typography.labelSmall)
  }

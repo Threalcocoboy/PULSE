@@ -14,34 +14,44 @@ import java.time.*
 import org.json.*
 
 interface HealthDataRepository { suspend fun load(today: LocalDate): HealthSnapshot }
-class DemoRepository : HealthDataRepository { override suspend fun load(today: LocalDate) = withContext(Dispatchers.Default) { DemoData.snapshot(today) } }
 class HealthConnectRepository(private val context: Context, private val dao: HealthDao) : HealthDataRepository {
     companion object {
         val permissions = setOf(HealthPermission.getReadPermission(StepsRecord::class), HealthPermission.getReadPermission(SleepSessionRecord::class),
             HealthPermission.getReadPermission(HeartRateRecord::class), HealthPermission.getReadPermission(DistanceRecord::class),HealthPermission.getReadPermission(RestingHeartRateRecord::class),HealthPermission.getReadPermission(HeartRateVariabilityRmssdRecord::class),HealthPermission.getReadPermission(TotalCaloriesBurnedRecord::class),HealthPermission.getReadPermission(ExerciseSessionRecord::class))
-        val supported = setOf(Metric.STEPS, Metric.SLEEP, Metric.SLEEP_STAGES, Metric.HEART, Metric.DISTANCE,Metric.RESTING_HEART,Metric.HRV,Metric.CALORIES,Metric.ACTIVE,Metric.ACTIVITIES)
+        val extraPermissions = setOf(HealthPermission.getReadPermission(ActiveCaloriesBurnedRecord::class),
+            HealthPermission.getReadPermission(FloorsClimbedRecord::class), HealthPermission.getReadPermission(HydrationRecord::class))
+        val supported = setOf(Metric.STEPS, Metric.SLEEP, Metric.SLEEP_STAGES, Metric.HEART, Metric.DISTANCE,Metric.RESTING_HEART,Metric.HRV,Metric.CALORIES,Metric.ACTIVE,Metric.ACTIVITIES,Metric.WORKOUT_DURATION,Metric.ACTIVE_CALORIES,Metric.FLOORS,Metric.HYDRATION)
+        internal fun permission(m:Metric)=HealthPermission.getReadPermission(when(m){Metric.STEPS->StepsRecord::class;Metric.SLEEP,Metric.SLEEP_STAGES->SleepSessionRecord::class;Metric.HEART->HeartRateRecord::class;Metric.RESTING_HEART->RestingHeartRateRecord::class;Metric.HRV->HeartRateVariabilityRmssdRecord::class;Metric.CALORIES->TotalCaloriesBurnedRecord::class;Metric.ACTIVE,Metric.ACTIVITIES,Metric.WORKOUT_DURATION->ExerciseSessionRecord::class;Metric.ACTIVE_CALORIES->ActiveCaloriesBurnedRecord::class;Metric.FLOORS->FloorsClimbedRecord::class;Metric.HYDRATION->HydrationRecord::class;else->DistanceRecord::class})
     }
-    fun requestedPermissions(): Set<String> {
-        if(availability()!=HealthConnectClient.SDK_AVAILABLE) return permissions
+    fun additionalPermissions(): Set<String> {
+        if(availability()!=HealthConnectClient.SDK_AVAILABLE) return emptySet()
         val features=HealthConnectClient.getOrCreate(context).features
-        return permissions + buildSet {
+        return extraPermissions + buildSet {
             if(features.getFeatureStatus(HealthConnectFeatures.FEATURE_READ_HEALTH_DATA_HISTORY)==HealthConnectFeatures.FEATURE_STATUS_AVAILABLE) add(HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY)
             if(features.getFeatureStatus(HealthConnectFeatures.FEATURE_READ_HEALTH_DATA_IN_BACKGROUND)==HealthConnectFeatures.FEATURE_STATUS_AVAILABLE) add(HealthPermission.PERMISSION_READ_HEALTH_DATA_IN_BACKGROUND)
         }
     }
     fun availability(): Int = HealthConnectClient.getSdkStatus(context)
-    override suspend fun load(today: LocalDate): HealthSnapshot = withContext(Dispatchers.IO) {
+    internal suspend fun cachedForBackground(): HealthSnapshot = withContext(Dispatchers.IO) {
+        if (availability() != HealthConnectClient.SDK_AVAILABLE) return@withContext HealthSnapshot()
+        val granted = HealthConnectClient.getOrCreate(context).permissionController.getGrantedPermissions()
+        val available = supported.filter { permission(it) in granted }.toSet()
+        fromRows(dao.days(ZoneId.systemDefault().id), available, granted, stale = true)
+    }
+    override suspend fun load(today: LocalDate): HealthSnapshot = load(today, background = false)
+
+    suspend fun load(today: LocalDate, background: Boolean): HealthSnapshot = withContext(Dispatchers.IO) {
         val zone = ZoneId.systemDefault()
         if(availability() != HealthConnectClient.SDK_AVAILABLE) return@withContext empty("Health Connect is unavailable. Install or update it on a supported Android device.", DataState.UNAVAILABLE, today)
-        val client = HealthConnectClient.getOrCreate(context)
         var granted = emptySet<String>()
         try {
+            val client = HealthConnectClient.getOrCreate(context)
             granted = client.permissionController.getGrantedPermissions()
             val available = supported.filter { permission(it) in granted }.toSet()
             if(available.isEmpty()) return@withContext empty("Read permission required", DataState.PERMISSION_DENIED, today).copy(granted=granted)
             val hasHistory=HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY in granted
-            val backfill=hasHistory && RefreshPolicy.needsHistory(dao.days(zone.id).map{LocalDate.parse(it.date) to Instant.ofEpochMilli(it.synced)},today,Instant.now())
-            val start = today.minusDays(if(backfill) 365 else 28)
+            val backfill=!background && hasHistory && RefreshPolicy.needsHistory(dao.days(zone.id).map{LocalDate.parse(it.date) to Instant.ofEpochMilli(it.synced)},today,Instant.now())
+            val start = today.minusDays(if(backfill) 365 else if(background) 7 else 28)
             val end=today.plusDays(1).atStartOfDay(zone).toInstant()
             val heart=mutableListOf<HeartSample>()
             if(Metric.HEART in available) {
@@ -66,6 +76,9 @@ class HealthConnectRepository(private val context: Context, private val dao: Hea
                 if(Metric.STEPS in available) add(StepsRecord.COUNT_TOTAL)
                 if(Metric.DISTANCE in available) add(DistanceRecord.DISTANCE_TOTAL)
                 if(Metric.CALORIES in available) add(TotalCaloriesBurnedRecord.ENERGY_TOTAL)
+                if(Metric.ACTIVE_CALORIES in available) add(ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL)
+                if(Metric.FLOORS in available) add(FloorsClimbedRecord.FLOORS_CLIMBED_TOTAL)
+                if(Metric.HYDRATION in available) add(HydrationRecord.VOLUME_TOTAL)
             }
             val buckets = if(metrics.isEmpty()) emptyList() else client.aggregateGroupByPeriod(AggregateGroupByPeriodRequest(
                 metrics=metrics, timeRangeFilter=TimeRangeFilter.between(start.atStartOfDay(), today.plusDays(1).atStartOfDay()), timeRangeSlicer=Period.ofDays(1)))
@@ -93,15 +106,27 @@ class HealthConnectRepository(private val context: Context, private val dao: Hea
                 resting.filter{it.time.atZone(zone).toLocalDate()==date}.map{it.beatsPerMinute.toDouble()}.takeIf{it.isNotEmpty()}?.let{json.put("RESTING_HEART",it.average())}
                 hrv.filter{it.time.atZone(zone).toLocalDate()==date}.map{it.heartRateVariabilityMillis}.takeIf{it.isNotEmpty()}?.let{json.put("HRV",it.average())}
                 byDate[date]?.result?.get(TotalCaloriesBurnedRecord.ENERGY_TOTAL)?.inKilocalories?.let{json.put("CALORIES",it)}
+                byDate[date]?.result?.get(ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL)?.inKilocalories?.let { json.put("ACTIVE_CALORIES", it) }
+                byDate[date]?.result?.get(FloorsClimbedRecord.FLOORS_CLIMBED_TOTAL)?.let { json.put("FLOORS", it) }
+                byDate[date]?.result?.get(HydrationRecord.VOLUME_TOTAL)?.inLiters?.let { json.put("HYDRATION", it) }
                 val bounds=HistoryMath.dayBounds(date,zone);val candidates=exercise.filter{it.startTime<bounds.second&&it.endTime>bounds.first};val origin=candidates.minOfOrNull{it.metadata.dataOrigin.packageName};val intervalsForDay=candidates.filter{it.metadata.dataOrigin.packageName==origin}.distinctBy{it.metadata.id};val workouts=intervalsForDay.filter{it.startTime.atZone(zone).toLocalDate()==date}
-                if(workouts.isNotEmpty())json.put("ACTIVITIES",workouts.size);if(intervalsForDay.isNotEmpty())json.put("ACTIVE",HistoryMath.sleepHours(intervalsForDay.map{maxOf(it.startTime,bounds.first) to minOf(it.endTime,bounds.second)})*60)
+                if (Metric.ACTIVITIES in available) {
+                    json.put("workouts_read", true)
+                    if (workouts.isNotEmpty()) {
+                        json.put("ACTIVITIES", workouts.size)
+                        json.put("WORKOUT_DURATION", HistoryMath.sleepHours(workouts.map { it.startTime to it.endTime }) * 60)
+                    }
+                }
+                if(intervalsForDay.isNotEmpty())json.put("ACTIVE",HistoryMath.sleepHours(intervalsForDay.map{maxOf(it.startTime,bounds.first) to minOf(it.endTime,bounds.second)})*60)
                 val night=sleep.filter{HistoryMath.sleepDate(it.endTime,zone)==date};val nightOrigin=night.minOfOrNull{it.metadata.dataOrigin.packageName};val primaryNight=night.filter{it.metadata.dataOrigin.packageName==nightOrigin};primaryNight.minOfOrNull{it.startTime}?.let{json.put("sleep_start",it.toString())};primaryNight.maxOfOrNull{it.endTime}?.let{json.put("sleep_end",it.toString())};val stages=JSONObject();sleep.filter{HistoryMath.sleepDate(it.endTime,zone)==date&&it.metadata.dataOrigin.packageName==sleep.filter{v->HistoryMath.sleepDate(v.endTime,zone)==date}.minOfOrNull{v->v.metadata.dataOrigin.packageName}}.flatMap{it.stages}.groupBy{it.stage}.forEach{(stage,list)->val key=when(stage){SleepSessionRecord.STAGE_TYPE_DEEP->"deep";SleepSessionRecord.STAGE_TYPE_LIGHT->"light";SleepSessionRecord.STAGE_TYPE_REM->"rem";SleepSessionRecord.STAGE_TYPE_AWAKE->"awake";else->"other"};stages.put(key,HistoryMath.sleepHours(list.map{it.startTime to it.endTime}))};json.put("stages",stages)
-                val activities=JSONArray();workouts.forEach{a->activities.put(JSONObject().put("id",a.metadata.id).put("name",a.title ?: "Exercise").put("type",a.exerciseType.toString()).put("start",a.startTime.atZone(zone).toLocalTime().toString()).put("minutes",Duration.between(a.startTime,a.endTime).toMinutes()))};json.put("activities",activities)
+                val activities=JSONArray();workouts.forEach{a->activities.put(JSONObject().put("id",a.metadata.id).put("name",a.title ?: "Exercise").put("type",workoutType(a.exerciseType)).put("start",a.startTime.atZone(zone).toLocalTime().toString()).put("minutes",Duration.between(a.startTime,a.endTime).toMinutes()))};json.put("activities",activities)
                 HealthExtraEntity(zone.id,row.date,json.toString(),now.toEpochMilli())
             }
             dao.saveExtras(extraRows)
             dao.saveDays(rows)
-            val snapshot = fromRows(dao.days(zone.id), available, granted, false).copy(status="Health Connect · synchronized" + if(hasHistory) " · authorized history · active minutes reflect recorded exercise" else " · recent history (older records require history access)",synced=now)
+            val snapshot = fromRows(dao.days(zone.id), available, granted, false).copy(status="Health Connect · synchronized" + if(hasHistory) " · authorized history · active minutes reflect recorded exercise" else " · recent history (older records require history access)",synced=now,
+                access=if(granted.containsAll(permissions)) ProviderAccess.CONNECTED else ProviderAccess.PARTIAL,
+                sourceScope="HEALTH_CONNECT:${zone.id}")
             val medals=snapshot.days.map { YearMonth.from(it.date) }.distinct().map { month ->
                 val m=Achievements.calculate(month,snapshot.days,today)
                 MedalEntity(month.toString(),zone.id,m.total,m.tier?.name,m.state,now.toEpochMilli())
@@ -110,13 +135,78 @@ class HealthConnectRepository(private val context: Context, private val dao: Hea
             snapshot
         } catch(e: CancellationException) { throw e
         } catch(e: Exception) {
+            if (e is SecurityException) {
+                granted = try { HealthConnectClient.getOrCreate(context).permissionController.getGrantedPermissions() }
+                catch (c: CancellationException) { throw c }
+                catch (_: Exception) { emptySet() }
+                if (granted.none { it in permissions || it in extraPermissions }) {
+                    return@withContext empty("Read permission required", DataState.PERMISSION_DENIED, today).copy(granted = granted)
+                }
+            }
             val available = supported.filter { permission(it) in granted }.toSet()
             val cached = fromRows(dao.days(zone.id),available,granted,true)
-            cached.copy(status="Synchronization failed · cached records", error=if(e is SecurityException) "Permission changed. Review Health Connect access." else "Could not read Health Connect. Retry when the provider is available.")
+            cached.copy(status="Synchronization failed · cached records", error=if(e is SecurityException) "Permission changed. Review Health Connect access." else "Could not read Health Connect. Retry when the provider is available.", access=ProviderAccess.ERROR)
         }
     }
-    private fun permission(m:Metric)=HealthPermission.getReadPermission(when(m){Metric.STEPS->StepsRecord::class;Metric.SLEEP,Metric.SLEEP_STAGES->SleepSessionRecord::class;Metric.HEART->HeartRateRecord::class;Metric.RESTING_HEART->RestingHeartRateRecord::class;Metric.HRV->HeartRateVariabilityRmssdRecord::class;Metric.CALORIES->TotalCaloriesBurnedRecord::class;Metric.ACTIVE,Metric.ACTIVITIES->ExerciseSessionRecord::class;else->DistanceRecord::class})
-    private fun empty(message: String, state: DataState, today: LocalDate) = HealthSnapshot(listOf(DayData(today,Metric.entries.associateWith { Reading(state=if(it in supported) state else DataState.UNSUPPORTED) })),message)
+    private fun workoutType(type: Int): String = when (type) {
+        ExerciseSessionRecord.EXERCISE_TYPE_RUNNING, ExerciseSessionRecord.EXERCISE_TYPE_RUNNING_TREADMILL -> "Running"
+        ExerciseSessionRecord.EXERCISE_TYPE_WALKING -> "Walking"
+        ExerciseSessionRecord.EXERCISE_TYPE_BIKING, ExerciseSessionRecord.EXERCISE_TYPE_BIKING_STATIONARY -> "Cycling"
+        ExerciseSessionRecord.EXERCISE_TYPE_SWIMMING_POOL, ExerciseSessionRecord.EXERCISE_TYPE_SWIMMING_OPEN_WATER -> "Swimming"
+        ExerciseSessionRecord.EXERCISE_TYPE_STRENGTH_TRAINING, ExerciseSessionRecord.EXERCISE_TYPE_WEIGHTLIFTING -> "Strength training"
+        ExerciseSessionRecord.EXERCISE_TYPE_YOGA -> "Yoga"
+        ExerciseSessionRecord.EXERCISE_TYPE_HIKING -> "Hiking"
+        ExerciseSessionRecord.EXERCISE_TYPE_ROWING, ExerciseSessionRecord.EXERCISE_TYPE_ROWING_MACHINE -> "Rowing"
+        ExerciseSessionRecord.EXERCISE_TYPE_PILATES -> "Pilates"
+        ExerciseSessionRecord.EXERCISE_TYPE_DANCING -> "Dancing"
+        ExerciseSessionRecord.EXERCISE_TYPE_BADMINTON -> "Badminton"
+        ExerciseSessionRecord.EXERCISE_TYPE_BASEBALL -> "Baseball"
+        ExerciseSessionRecord.EXERCISE_TYPE_BASKETBALL -> "Basketball"
+        ExerciseSessionRecord.EXERCISE_TYPE_BOOT_CAMP -> "Boot camp"
+        ExerciseSessionRecord.EXERCISE_TYPE_BOXING -> "Boxing"
+        ExerciseSessionRecord.EXERCISE_TYPE_CALISTHENICS -> "Calisthenics"
+        ExerciseSessionRecord.EXERCISE_TYPE_CRICKET -> "Cricket"
+        ExerciseSessionRecord.EXERCISE_TYPE_ELLIPTICAL -> "Elliptical"
+        ExerciseSessionRecord.EXERCISE_TYPE_EXERCISE_CLASS -> "Exercise class"
+        ExerciseSessionRecord.EXERCISE_TYPE_FENCING -> "Fencing"
+        ExerciseSessionRecord.EXERCISE_TYPE_FOOTBALL_AMERICAN -> "American football"
+        ExerciseSessionRecord.EXERCISE_TYPE_FOOTBALL_AUSTRALIAN -> "Australian football"
+        ExerciseSessionRecord.EXERCISE_TYPE_FRISBEE_DISC -> "Disc sports"
+        ExerciseSessionRecord.EXERCISE_TYPE_GOLF -> "Golf"
+        ExerciseSessionRecord.EXERCISE_TYPE_GUIDED_BREATHING -> "Guided breathing"
+        ExerciseSessionRecord.EXERCISE_TYPE_GYMNASTICS -> "Gymnastics"
+        ExerciseSessionRecord.EXERCISE_TYPE_HANDBALL -> "Handball"
+        ExerciseSessionRecord.EXERCISE_TYPE_HIGH_INTENSITY_INTERVAL_TRAINING -> "High-intensity interval training"
+        ExerciseSessionRecord.EXERCISE_TYPE_ICE_HOCKEY -> "Ice hockey"
+        ExerciseSessionRecord.EXERCISE_TYPE_ICE_SKATING -> "Ice skating"
+        ExerciseSessionRecord.EXERCISE_TYPE_MARTIAL_ARTS -> "Martial arts"
+        ExerciseSessionRecord.EXERCISE_TYPE_PADDLING -> "Paddling"
+        ExerciseSessionRecord.EXERCISE_TYPE_PARAGLIDING -> "Paragliding"
+        ExerciseSessionRecord.EXERCISE_TYPE_RACQUETBALL -> "Racquetball"
+        ExerciseSessionRecord.EXERCISE_TYPE_ROCK_CLIMBING -> "Rock climbing"
+        ExerciseSessionRecord.EXERCISE_TYPE_ROLLER_HOCKEY -> "Roller hockey"
+        ExerciseSessionRecord.EXERCISE_TYPE_RUGBY -> "Rugby"
+        ExerciseSessionRecord.EXERCISE_TYPE_SAILING -> "Sailing"
+        ExerciseSessionRecord.EXERCISE_TYPE_SCUBA_DIVING -> "Scuba diving"
+        ExerciseSessionRecord.EXERCISE_TYPE_SKATING -> "Skating"
+        ExerciseSessionRecord.EXERCISE_TYPE_SKIING -> "Skiing"
+        ExerciseSessionRecord.EXERCISE_TYPE_SNOWBOARDING -> "Snowboarding"
+        ExerciseSessionRecord.EXERCISE_TYPE_SNOWSHOEING -> "Snowshoeing"
+        ExerciseSessionRecord.EXERCISE_TYPE_SOCCER -> "Soccer"
+        ExerciseSessionRecord.EXERCISE_TYPE_SOFTBALL -> "Softball"
+        ExerciseSessionRecord.EXERCISE_TYPE_SQUASH -> "Squash"
+        ExerciseSessionRecord.EXERCISE_TYPE_STAIR_CLIMBING, ExerciseSessionRecord.EXERCISE_TYPE_STAIR_CLIMBING_MACHINE -> "Stair climbing"
+        ExerciseSessionRecord.EXERCISE_TYPE_STRETCHING -> "Stretching"
+        ExerciseSessionRecord.EXERCISE_TYPE_SURFING -> "Surfing"
+        ExerciseSessionRecord.EXERCISE_TYPE_TABLE_TENNIS -> "Table tennis"
+        ExerciseSessionRecord.EXERCISE_TYPE_TENNIS -> "Tennis"
+        ExerciseSessionRecord.EXERCISE_TYPE_VOLLEYBALL -> "Volleyball"
+        ExerciseSessionRecord.EXERCISE_TYPE_WATER_POLO -> "Water polo"
+        ExerciseSessionRecord.EXERCISE_TYPE_WHEELCHAIR -> "Wheelchair exercise"
+        else -> "Other workout"
+    }
+
+    private fun empty(message: String, state: DataState, today: LocalDate) = HealthSnapshot(listOf(DayData(today,Metric.entries.associateWith { Reading(state=if(it in supported) state else DataState.UNSUPPORTED) })),message,access=if(state==DataState.UNAVAILABLE) ProviderAccess.UNAVAILABLE else ProviderAccess.DENIED, sourceScope="HEALTH_CONNECT:${ZoneId.systemDefault().id}")
     private suspend fun fromRows(rows: List<DailyEntity>, available: Set<Metric>, granted: Set<String>, stale: Boolean): HealthSnapshot {
         val cacheZone=rows.firstOrNull()?.zone ?: ZoneId.systemDefault().id
         val extras=dao.extras(cacheZone).associateBy{it.date}
@@ -126,7 +216,7 @@ class HealthConnectRepository(private val context: Context, private val dao: Hea
             when { m !in supported -> Reading(state=DataState.UNSUPPORTED)
                 m !in available -> Reading(state=DataState.PERMISSION_DENIED)
                 else -> Reading(v,if(v==null) DataState.EMPTY else if(stale) DataState.STALE else DataState.READY,Instant.ofEpochMilli(r.synced)) }
-        },complete=false).let{day->val extra=extras[r.date]?.let{runCatching{JSONObject(it.payload)}.getOrNull()};val stages=extra?.optJSONObject("stages");val list=extra?.optJSONArray("activities");day.copy(sleepStart=if(Metric.SLEEP in available)extra?.optString("sleep_start")?.takeIf{it.isNotBlank()}?.let{runCatching{Instant.parse(it)}.getOrNull()} else null,sleepEnd=if(Metric.SLEEP in available)extra?.optString("sleep_end")?.takeIf{it.isNotBlank()}?.let{runCatching{Instant.parse(it)}.getOrNull()}else null,sleepStages=if(Metric.SLEEP_STAGES in available)stages?.keys()?.asSequence()?.associateWith{stages.getDouble(it)} ?: emptyMap()else emptyMap(),activities=if(Metric.ACTIVITIES in available)(0 until (list?.length() ?: 0)).map{val a=list!!.getJSONObject(it);RecordedActivity(a.getString("id"),a.getString("name"),a.getString("type"),a.getString("start"),null,a.getDouble("minutes"))}else emptyList())} }
-        return HealthSnapshot(days, synced=rows.maxOfOrNull { it.synced }?.let(Instant::ofEpochMilli),available=available,granted=granted,heartSamples=if(Metric.HEART in available)dao.samples(cacheZone).map{HeartSample(Instant.ofEpochMilli(it.time),it.bpm,it.source)}else emptyList())
+        },complete=false).let{day->val extra=extras[r.date]?.let{runCatching{JSONObject(it.payload)}.getOrNull()};val stages=extra?.optJSONObject("stages");val list=extra?.optJSONArray("activities");day.copy(workoutsRead=!stale && Metric.ACTIVITIES in available && extra?.optBoolean("workouts_read")==true,sleepStart=if(Metric.SLEEP in available)extra?.optString("sleep_start")?.takeIf{it.isNotBlank()}?.let{runCatching{Instant.parse(it)}.getOrNull()} else null,sleepEnd=if(Metric.SLEEP in available)extra?.optString("sleep_end")?.takeIf{it.isNotBlank()}?.let{runCatching{Instant.parse(it)}.getOrNull()}else null,sleepStages=if(Metric.SLEEP_STAGES in available)stages?.keys()?.asSequence()?.associateWith{stages.getDouble(it)} ?: emptyMap()else emptyMap(),activities=if(Metric.ACTIVITIES in available)(0 until (list?.length() ?: 0)).map{val a=list!!.getJSONObject(it);RecordedActivity(a.getString("id"),a.getString("name"),a.getString("type").let { it.toIntOrNull()?.let(::workoutType) ?: it },a.getString("start"),null,a.getDouble("minutes"))}else emptyList())} }
+        return HealthSnapshot(days, synced=rows.maxOfOrNull { it.synced }?.let(Instant::ofEpochMilli),available=available,granted=granted,sourceScope="HEALTH_CONNECT:$cacheZone",heartSamples=if(Metric.HEART in available)dao.samples(cacheZone).map{HeartSample(Instant.ofEpochMilli(it.time),it.bpm,it.source)}else emptyList())
     }
 }

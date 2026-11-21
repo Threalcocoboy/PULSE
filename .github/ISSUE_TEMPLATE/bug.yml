@@ -1,0 +1,29 @@
+name: Bug report
+description: Report a reproducible app issue using synthetic or empty data.
+body:
+  - type: input
+    id: version
+    attributes:
+      label: PULSE version and distribution
+    validations:
+      required: true
+  - type: input
+    id: android
+    attributes:
+      label: Android version and device model
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Steps, expected behavior and actual behavior
+      description: Omit real health records, account identifiers, exports and logs containing private information.
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy
+      options:
+        - label: I removed private data and credentials from this report.
+          required: true

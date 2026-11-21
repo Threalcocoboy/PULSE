@@ -1,6 +1,6 @@
 # Health Connect coverage — 8 November 2026
 
-PULSE uses Health Connect Jetpack 1.1.0, min SDK 28, target/compile SDK 37. Availability is checked before access; Android 9 installations can still use demo mode. Individual base read permissions are optional. History and background access are requested only when the provider exposes the corresponding feature.
+PULSE uses Health Connect Jetpack 1.1.0, min SDK 28, target/compile SDK 37. Availability is checked before access. Devices without Health Connect can use Garmin. Individual base read permissions are optional. Optional health categories, history and background access can be granted separately in Devices & Data. History and background access require platform support.
 
 | Record | Permission suffix | Destination | Import/history/UI | Limitations |
 |---|---|---|---|---|
@@ -12,11 +12,11 @@ PULSE uses Health Connect Jetpack 1.1.0, min SDK 28, target/compile SDK 37. Avai
 | TotalCaloriesBurnedRecord | READ_TOTAL_CALORIES_BURNED | CALORIES | Daily aggregate in kilocalories | Total energy; not mislabeled active energy |
 | ExerciseSessionRecord | READ_EXERCISE | ACTIVITIES / ACTIVE | Session IDs, titles, type codes, local start times, duration; starts count on local start day; duration split at midnight and overlaps unioned | One origin per day; exercise minutes are not Garmin intensity minutes; route permission is not requested |
 | SleepSessionRecord | READ_SLEEP | SLEEP / SLEEP_STAGES | Wake-date night assignment; session start/end, stage-duration totals, local cache and detail view | One source per night; totals do not claim a continuous sleep-stage timeline |
-| ActiveCaloriesBurnedRecord | Not requested | Deferred | No active-energy-specific PULSE metric yet | Total and active energy are not interchangeable |
-| FloorsClimbedRecord | Not requested | Deferred | No floor metric/goal/detail destination in current app | No permission without useful UI |
+| ActiveCaloriesBurnedRecord | READ_ACTIVE_CALORIES_BURNED | Active calories | Daily aggregate in kcal for challenges and progress notifications | Separate from total energy |
+| FloorsClimbedRecord | READ_FLOORS_CLIMBED | Floors climbed | Daily aggregate for challenges and progress notifications | Requires optional access |
 | SpeedRecord / ExerciseRoute | Not requested | Deferred | No speed/pace/route experience in this iteration | Location-sensitive route access deliberately avoided |
 | WeightRecord / HeightRecord / BodyFatRecord | Not requested | Deferred | No body-measurement detail/goal model in current app | No indiscriminate permission expansion |
-| HydrationRecord / NutritionRecord | Not requested | Deferred | No hydration/nutrition tracking UI in current app | No fabricated intake or nutrition totals |
+| HydrationRecord | READ_HYDRATION | Hydration | Daily recorded intake in liters for challenges and progress notifications | Requires optional access |
 | Body Battery / Training Readiness | No matching generic HC reader | Unsupported in HC | Missing/unsupported state | Proprietary Garmin measurements are never synthesized |
 
 Historical access: without extra history access PULSE reads its recent 29-calendar-day window. Authorized history allows a 365-day backfill, followed by recent refreshes and weekly historical reconciliation. The staleness check ignores retained rows older than the active historical window, preventing repeated full backfills. Existing older cache rows remain. Heart sample windows are replaced transactionally with a composite zone/timestamp/origin key, so repeated imports do not duplicate observations. Permission-denied values and cached samples are hidden when permission is absent. Empty records, denied permissions and read failures are separate states.

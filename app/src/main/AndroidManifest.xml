@@ -10,9 +10,12 @@
     <uses-permission android:name="android.permission.health.READ_HEART_RATE_VARIABILITY" />
     <uses-permission android:name="android.permission.health.READ_TOTAL_CALORIES_BURNED" />
     <uses-permission android:name="android.permission.health.READ_EXERCISE" />
+    <uses-permission android:name="android.permission.health.READ_ACTIVE_CALORIES_BURNED" />
+    <uses-permission android:name="android.permission.health.READ_FLOORS_CLIMBED" />
+    <uses-permission android:name="android.permission.health.READ_HYDRATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <queries><package android:name="com.google.android.apps.healthdata" /></queries>
-    <application android:label="PULSE" android:theme="@style/Theme.Pulse" android:icon="@drawable/ic_pulse" android:allowBackup="false" android:fullBackupContent="false" android:dataExtractionRules="@xml/data_extraction_rules" android:supportsRtl="true">
+    <application android:label="PULSE" android:theme="@style/Theme.Pulse" android:icon="@drawable/ic_pulse" android:allowBackup="false" android:fullBackupContent="false" android:dataExtractionRules="@xml/data_extraction_rules" android:supportsRtl="true" android:usesCleartextTraffic="false">
         <activity android:name=".MainActivity" android:windowSoftInputMode="adjustResize" android:exported="true">
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
             <intent-filter><action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" /></intent-filter>

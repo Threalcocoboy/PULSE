@@ -1,6 +1,7 @@
 package com.pulse.app.data
 
 import android.content.Context
+import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.room.*
@@ -12,22 +13,76 @@ import kotlinx.coroutines.flow.*
 import java.io.IOException
 
 internal val Context.pulseStore by preferencesDataStore(name = "pulse_preferences")
-class PreferenceStore(context: Context) {
-    private val store = context.pulseStore
+class PreferenceStore internal constructor(private val store: DataStore<androidx.datastore.preferences.core.Preferences>) {
+    constructor(context: Context) : this(context.pulseStore)
     private val settingsKey = stringPreferencesKey("settings_v1")
     private val layoutKey = stringPreferencesKey("layout_v1")
+    private val modesKey = stringPreferencesKey("dashboard_modes_v1")
     val preferences = store.data.catch { if(it is IOException) emit(emptyPreferences()) else throw it }.map { PreferencesCodec.decode(it[settingsKey] ?: "") }
-    val layout = store.data.catch { if(it is IOException) emit(emptyPreferences()) else throw it }.map { LayoutCodec.decode(it[layoutKey] ?: "") }
     suspend fun update(transform: (Preferences) -> Preferences) { store.edit { it[settingsKey] = PreferencesCodec.encode(transform(PreferencesCodec.decode(it[settingsKey] ?: "")).sanitized()) } }
-    suspend fun layout(value: List<Widget>) { require(AdaptiveFlow.isValid(value)); store.edit { it[layoutKey] = LayoutCodec.encode(value) } }
+    suspend fun dashboardModes(): PulseModes {
+        val saved = store.edit { values ->
+            if (values[modesKey] == null) {
+                val legacy = values[layoutKey]?.let(LayoutCodec::decode)
+                val oldSettings = PreferencesCodec.decode(values[settingsKey].orEmpty())
+                val initial = PulseModes.initial(legacy ?: AdaptiveFlow.defaults().takeIf { oldSettings.onboarded }, observations = oldSettings.insights)
+                values[modesKey] = PulseModesCodec.encode(initial)
+            }
+        }
+        return checkNotNull(saved[modesKey]?.let(PulseModesCodec::decode))
+    }
+    suspend fun saveModes(value: PulseModes) = store.edit { it[modesKey] = PulseModesCodec.encode(value) }
     suspend fun clear() { store.edit { it.clear() } }
 }
 object PreferencesCodec {
-    fun encode(p: Preferences) = p.sanitized().let { listOf("v1",it.onboarded,it.mode.name,it.stepGoal,it.sleepGoal,it.theme,it.animations,it.haptics,it.insights,it.imperial,it.distanceGoal,it.activeGoal,it.workoutGoal,it.enabledGoals.joinToString(",") { g -> g.name },java.util.Base64.getUrlEncoder().encodeToString(it.displayName.toByteArray(Charsets.UTF_8)),it.introSeen,it.onboardingStep,it.progressNotifications,it.notificationMetrics.joinToString(","){g->g.name}).joinToString("|") }
-    fun decode(raw: String): Preferences = runCatching { val a=raw.split('|'); require(a.size in setOf(10,14,19) && a[0]=="v1")
-        Preferences(a[1].toBooleanStrict(),DataMode.valueOf(a[2]),a[3].toInt(),a[4].toDouble(),a[5],a[6].toBooleanStrict(),a[7].toBooleanStrict(),a[8].toBooleanStrict(),a[9].toBooleanStrict(),
-            a.getOrNull(10)?.toDouble() ?: 5.0,a.getOrNull(11)?.toInt() ?: 30,a.getOrNull(12)?.toInt() ?: 3,
-            a.getOrNull(13)?.split(',')?.map { Metric.valueOf(it) }?.toSet() ?: setOf(Metric.STEPS,Metric.SLEEP),a.getOrNull(14)?.let {String(java.util.Base64.getUrlDecoder().decode(it),Charsets.UTF_8)} ?: "",a.getOrNull(15)?.toBooleanStrict() ?: false,a.getOrNull(16)?.toInt() ?: 0,a.getOrNull(17)?.toBooleanStrict() ?: false,a.getOrNull(18)?.split(',')?.filter{it.isNotBlank()}?.map{Metric.valueOf(it)}?.toSet() ?: setOf(Metric.STEPS,Metric.DISTANCE)).sanitized()
+    fun encode(p: Preferences) = p.sanitized().let {
+        listOf("v4", it.onboarded, it.mode.name, it.stepGoal, it.sleepGoal, it.theme, it.animations, it.haptics, it.insights,
+            it.imperial, it.distanceGoal, it.activeGoal, it.workoutGoal, it.enabledGoals.joinToString(",") { goal -> goal.name },
+            java.util.Base64.getUrlEncoder().encodeToString(it.displayName.toByteArray(Charsets.UTF_8)), it.introSeen,
+            it.onboardingStep, it.progressNotifications, it.notificationMetrics.joinToString(",") { metric -> metric.name },
+            it.setupSource.name, it.sourceSetup.name, it.goalsSetup.name, it.notificationSetup.name, it.combineHealthConnect,
+            it.providerPriority.entries.sortedBy { entry -> entry.key.name }
+                .joinToString(",") { entry -> "${entry.key.name}=${entry.value.name}" }, it.weeklyActiveGoal,
+            PersonalGoalCodec.encode(it.personalGoals)).joinToString("|")
+    }
+
+    fun decode(raw: String): Preferences = runCatching {
+        val fields = raw.split('|')
+        val legacy = fields[0] == "v1"
+        require((legacy && fields.size in setOf(10, 14, 19)) || (fields[0] == "v2" && fields.size == 23) ||
+            (fields[0] == "v3" && fields.size in 25..26) || (fields[0] == "v4" && fields.size == 27))
+        val onboarded = fields[1].toBooleanStrict()
+        val mode = DataMode.fromStored(fields[2])
+        val oldStep = fields.getOrNull(16)?.toInt() ?: 0
+        val step = if (!legacy) oldStep else when {
+            oldStep <= 1 -> SetupStep.WELCOME.ordinal
+            mode == DataMode.NONE -> SetupStep.SOURCE.ordinal
+            else -> SetupStep.CONNECT.ordinal
+        }
+        fun metrics(index: Int, defaults: Set<Metric>) = fields.getOrNull(index)?.split(',')
+            ?.mapNotNull { name -> Metric.entries.firstOrNull { it.name == name } }?.toSet() ?: defaults
+        fun status(index: Int) = fields.getOrNull(index)?.let(SetupStatus::valueOf) ?: SetupStatus.NOT_STARTED
+        Preferences(
+            onboarded = onboarded, mode = mode, stepGoal = fields[3].toInt(), sleepGoal = fields[4].toDouble(),
+            theme = fields[5], animations = fields[6].toBooleanStrict(), haptics = fields[7].toBooleanStrict(),
+            insights = fields[8].toBooleanStrict(), imperial = fields[9].toBooleanStrict(),
+            distanceGoal = fields.getOrNull(10)?.toDouble() ?: 5.0, activeGoal = fields.getOrNull(11)?.toInt() ?: 30,
+            workoutGoal = fields.getOrNull(12)?.toInt() ?: 3, enabledGoals = metrics(13, setOf(Metric.STEPS, Metric.SLEEP)),
+            displayName = fields.getOrNull(14)?.let { String(java.util.Base64.getUrlDecoder().decode(it), Charsets.UTF_8) }.orEmpty(),
+            introSeen = fields.getOrNull(15)?.toBooleanStrict() ?: false, onboardingStep = step,
+            progressNotifications = (fields.getOrNull(17)?.toBooleanStrict() ?: false) && mode != DataMode.NONE,
+            notificationMetrics = metrics(18, setOf(Metric.STEPS, Metric.DISTANCE)),
+            setupSource = fields.getOrNull(19)?.let(DataMode::fromStored) ?: mode,
+            sourceSetup = status(20), goalsSetup = status(21), notificationSetup = status(22),
+            combineHealthConnect = fields.getOrNull(23)?.toBooleanStrictOrNull() ?: false,
+            providerPriority = fields.getOrNull(24).orEmpty().split(',').mapNotNull { entry ->
+                val metric = Metric.entries.firstOrNull { it.name == entry.substringBefore('=') }
+                val provider = DataMode.fromStored(entry.substringAfter('=', ""))
+                metric?.takeIf { provider in setOf(DataMode.HEALTH_CONNECT, DataMode.GOOGLE_HEALTH) }?.let { it to provider }
+            }.toMap(),
+            weeklyActiveGoal = fields.getOrNull(25)?.toIntOrNull() ?: 150,
+            personalGoals = PersonalGoalCodec.decode(fields.getOrNull(26).orEmpty())
+        ).sanitized()
     }.getOrDefault(Preferences())
 }
 @Entity(tableName="daily", primaryKeys=["date","zone"])
@@ -73,7 +128,7 @@ interface HealthDao {
     @Query("SELECT * FROM daily WHERE zone = :zone ORDER BY date") suspend fun days(zone: String): List<DailyEntity>
     @Upsert suspend fun saveDays(rows: List<DailyEntity>)
     @Upsert suspend fun saveMedals(rows: List<MedalEntity>)
-    @Query("SELECT * FROM garmin_daily ORDER BY date") suspend fun garminDays(): List<GarminDayEntity>
+    @Query("SELECT * FROM garmin_daily WHERE zone = :scope ORDER BY date") suspend fun garminDays(scope: String = "GARMIN_ACCOUNT_LOCAL"): List<GarminDayEntity>
     @Upsert suspend fun saveGarmin(rows: List<GarminDayEntity>)
     @Query("DELETE FROM garmin_daily") suspend fun deleteGarmin()
     @Query("DELETE FROM daily") suspend fun deleteDays()

@@ -24,10 +24,10 @@ class ChallengeTest {
         val c=manual().copy(tracking=ChallengeTracking.AUTOMATIC,target=100.0)
         assertEquals(60.0,ChallengeEvaluator.evaluate(c,snapshot(today to 60.0,today to 60.0),today).progress,0.0)
     }
-    @Test fun missingAndDemoNeverCompleteOrExpire(){
+    @Test fun missingAndDisconnectedNeverCompleteOrExpire(){
         val c=manual().copy(tracking=ChallengeTracking.AUTOMATIC,duration=1)
         assertEquals(ChallengeStatus.AWAITING_DATA,ChallengeEvaluator.evaluate(c,snapshot(today to null),today.plusDays(2)).status)
-        assertEquals(ChallengeStatus.AWAITING_DATA,ChallengeEvaluator.evaluate(c,snapshot(today to 100.0).copy(mode=DataMode.DEMO),today).status)
+        assertEquals(ChallengeStatus.AWAITING_DATA,ChallengeEvaluator.evaluate(c,snapshot(today to 100.0).copy(mode=DataMode.NONE),today).status)
         assertEquals(ChallengeStatus.EXPIRED,ChallengeEvaluator.evaluate(c,snapshot(today to 10.0),today.plusDays(1)).status)
         assertEquals(ChallengeStatus.COMPLETED,ChallengeEvaluator.evaluate(c,snapshot(today to 40.0),today.plusDays(2)).status)
     }
