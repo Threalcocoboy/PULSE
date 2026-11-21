@@ -1,16 +1,15 @@
 # PULSE 1.0.1
 
-## Navigation
+I built PULSE to see my health stats on Android in a layout I could make my own. Here’s what I’ve been working on for this version.
 
-- Open Settings, What's New, About and legal pages from the same menu on Home, History and Collection.
-- Review the Privacy Policy, Terms and third-party notices inside the app.
+## Finding things in the app
 
-## Health sources
+I added the same menu to Home, History and Collection so Settings, What’s New and About are easy to find. I also put the Privacy Policy, Terms and third-party notices in the app.
 
-- Google Health sync is paused pending verification. Previously imported data remains on the device.
-- Health Connect and the optional Garmin Personal API remain available.
+## Health data
+
+I’ve kept Health Connect and the optional Garmin Personal API integration available. I’ve paused Google Health sync while verification is pending. Any data you already imported stays on your device.
 
 ## Updates
 
-- Official GitHub builds check for stable releases, verify the APK and hand installation to Android for approval.
-- Optional automatic checks run when you open PULSE. You choose whether to download and install.
+I added update checks for official GitHub builds. PULSE verifies the APK before handing it to Android, and you decide whether to install it. You can turn on automatic checks if you want PULSE to look for updates when you open it.

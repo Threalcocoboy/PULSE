@@ -2,4 +2,4 @@
 
 ## 1.0.1 · release candidate
 
-See [release notes](RELEASE_NOTES.md) for the changes prepared for the first public release.
+I’ve collected the changes for my first PULSE release in the [release notes](RELEASE_NOTES.md).
