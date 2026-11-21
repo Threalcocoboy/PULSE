@@ -7,7 +7,8 @@ test -f "$apk"
 expected_signer=${PULSE_SIGNER_SHA256,,}
 [[ "$expected_signer" =~ ^[0-9a-f]{64}$ ]]
 signing=$("$sdk_tools/apksigner" verify --min-sdk-version 28 --verbose --print-certs "$apk")
-actual_signer=$(sed -n 's/^Signer #[0-9]* certificate SHA-256 digest: //p' <<< "$signing")
+grep -qx 'Number of signers: 1' <<< "$signing"
+actual_signer=$(sed -nE 's/^(Signer #[0-9]+|V[0-9.]+ Signer):? certificate SHA-256 digest: ([0-9a-f]{64})$/\2/p' <<< "$signing" | sort -u)
 test "$expected_signer" = "$actual_signer"
 
 metadata=$("$sdk_tools/aapt2" dump badging "$apk")
@@ -17,7 +18,7 @@ version_code=${BASH_REMATCH[1]}
 version=${BASH_REMATCH[2]}
 test "v$version" = "$GITHUB_REF_NAME"
 (( version_code <= 2100000000 ))
-grep -qx "sdkVersion:'28'" <<< "$metadata"
+grep -Eqx "(minSdkVersion|sdkVersion):'28'" <<< "$metadata"
 grep -q "android.permission.REQUEST_INSTALL_PACKAGES" <<< "$metadata"
 if grep -q '^application-debuggable' <<< "$metadata"; then
   exit 1
